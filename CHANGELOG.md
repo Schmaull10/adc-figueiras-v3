@@ -1,4 +1,13 @@
-# ADC Figueiras V3.4 — Match Center online
+# Changelog
+
+## V3.6 — Multas e regras online
+- Multas e regras passam a carregar e gravar no Supabase.
+- Capitão, Equipa Técnica e Admin podem gerir multas; regras ficam reservadas a Equipa Técnica/Admin.
+- Multas manuais podem ser criadas, editadas, eliminadas e marcadas como pagas/pendentes/perdoadas/anuladas.
+- A multa automática por atraso é criada/anulada pelo trigger do Supabase.
+- Data da multa passa a ser persistida no backend.
+- Descrição das regras passa a ser persistida no backend.
+- Definições ganham diagnóstico e migração de multas locais.
 
 - Convocatórias dos jogos do ADC Figueiras passam a ser guardadas em `match_players` no Supabase.
 - Estado de utilização (`Jogou`), 5 inicial e capitão ficam sincronizados entre dispositivos.

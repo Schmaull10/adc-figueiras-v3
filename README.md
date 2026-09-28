@@ -1,20 +1,12 @@
-# ADC Figueiras V3.4
+# ADC Figueiras V3.6
 
-Versão de desenvolvimento ligada ao Supabase.
-
-Nesta fase já estão online:
+Esta build liga ao Supabase:
 - autenticação e roles;
-- épocas, competições e equipas;
-- plantel;
-- calendário e resultados;
-- Match Center: convocados, utilizados, 5 inicial, capitão, golos, assistências e cartões.
-
-Continuam por migrar integralmente para o backend:
+- referências, plantel, calendário/resultados;
+- Match Center;
 - treinos, presenças e pesagens;
-- multas;
-- notificações.
+- multas e regras de multas.
 
-A V2.10 estável deve continuar separada deste repositório de desenvolvimento.
+Antes de publicar esta versão, corre `V3_6_SQL_MULTAS_ONLINE.sql` no SQL Editor do Supabase.
 
-### V3.5
-Antes de publicar esta build, correr `V3_5_SQL_ATENDIMENTO_LESIONADO.sql` uma vez no SQL Editor do Supabase. Depois publicar normalmente os ficheiros da app.
+A V2.10 estável continua separada.
