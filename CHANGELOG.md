@@ -1,3 +1,11 @@
+# V3.1 — Referências Supabase
+
+- Login real mantido.
+- A app lê `app_settings`, épocas, competições, equipas e associações de competição diretamente do Supabase.
+- IDs do backend são ligados em memória aos dados locais sem quebrar a V2/V3 de testes.
+- Novo diagnóstico em Definições para confirmar época ativa, clube, competições e número de equipas online.
+- Jogos, jogadores, treinos, pesagens e multas continuam locais nesta fase.
+
 # V3.0 Auth Pilot
 
 - Login real com Supabase (email + palavra-passe).

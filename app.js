@@ -4,7 +4,7 @@ const V2_KEY='adc-figueiras-team-manager-v3-dev';
 const V1_KEY='adc-figueiras-team-manager-v3-legacy-unused';
 const MODE_KEY='adc-figueiras-v3-preview-mode';
 const AUTO_BACKUP_KEY='adc-figueiras-team-manager-v3-autobackup';
-const APP_VERSION='3.0.0-auth';
+const APP_VERSION='3.1.0-reference';
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const pad=n=>String(n).padStart(2,'0');
@@ -29,6 +29,8 @@ let backendSession=null;
 let backendProfile=null;
 let backendRoles=[];
 let backendConnected=false;
+let backendReference={settings:null,seasons:[],competitions:[],teams:[],competitionTeams:[]};
+let backendReferenceLoaded=false;
 
 const roleRank=['public','member','player','captain','staff','admin'];
 function highestBackendRole(roles=[]){
@@ -38,6 +40,62 @@ function highestBackendRole(roles=[]){
 }
 function backendDisplayName(){
  return backendProfile?.display_name||backendSession?.user?.email?.split('@')[0]||'Utilizador';
+}
+
+const backendTeamCanonicalBySlug={
+ 'adc-figueiras':'ADC Figueiras',
+ 'ar-freixieiro':'AR Freixieiro',
+ 'fc-paco-de-sousa':'FC Paço Sousa',
+ 'fc-sao-romao':'FC São Romão',
+ 'aa-leca':'AA Leça',
+ 'asc-monte-pedras':'ASC Monte Pedras',
+ 'leais-videirinhos':'Leais e Videirinhos',
+ 'gd-juventude-matosinhos':'Juventude Matosinhos',
+ 'jd-gaia-b':'Juventude Gaia B',
+ 'ad-polenenses':'AD Polenenses',
+ 'arc-moinhos':'ARC Moinhos',
+ 'ad-tarrio':'AD Tarrio',
+ 'gd-baguim-monte':'GD Baguim Monte'
+};
+async function loadBackendReferenceData(settingsRow=null){
+ const [seasonsRes,competitionsRes,teamsRes,competitionTeamsRes]=await Promise.all([
+  supabaseClient.from('seasons').select('id,label,start_date,end_date,active,archived').order('start_date',{ascending:true}),
+  supabaseClient.from('competitions').select('id,season_id,name,slug,competition_type,phase,series_name,counts_for_standings,track_all_results,active').order('name',{ascending:true}),
+  supabaseClient.from('teams').select('id,name,short_name,slug,afp_code,crest_url,is_our_club,active').order('name',{ascending:true}),
+  supabaseClient.from('competition_teams').select('competition_id,team_id')
+ ]);
+ for(const res of [seasonsRes,competitionsRes,teamsRes,competitionTeamsRes])if(res.error)throw res.error;
+ backendReference={
+  settings:settingsRow||backendReference.settings,
+  seasons:seasonsRes.data||[],
+  competitions:competitionsRes.data||[],
+  teams:teamsRes.data||[],
+  competitionTeams:competitionTeamsRes.data||[]
+ };
+ backendReferenceLoaded=true;
+ applyBackendReferenceMetadata();
+}
+function applyBackendReferenceMetadata(){
+ if(!backendReferenceLoaded||typeof state==='undefined')return;
+ const activeBackendId=backendReference.settings?.active_season_id||'';
+ const clubBackendId=backendReference.settings?.club_team_id||'';
+ state.settings.backendActiveSeasonId=activeBackendId;
+ state.settings.backendClubTeamId=clubBackendId;
+ state.seasons=(state.seasons||[]).map(local=>{
+  const remote=backendReference.seasons.find(s=>s.label===local.label);
+  return remote?{...local,backendId:remote.id,backendStartDate:remote.start_date,backendEndDate:remote.end_date,backendArchived:remote.archived}:local;
+ });
+ state.teams=(state.teams||[]).map(local=>{
+  const remote=backendReference.teams.find(t=>backendTeamCanonicalBySlug[t.slug]===local.name);
+  if(!remote)return local;
+  return {...local,backendId:remote.id,backendSlug:remote.slug,officialName:remote.name,backendShortName:remote.short_name,afpCode:remote.afp_code||'',logo:remote.crest_url||local.logo};
+ });
+}
+function backendActiveSeason(){
+ return backendReference.seasons.find(s=>s.id===backendReference.settings?.active_season_id)||backendReference.seasons.find(s=>s.active)||null;
+}
+function backendClubTeam(){
+ return backendReference.teams.find(t=>t.id===backendReference.settings?.club_team_id)||backendReference.teams.find(t=>t.is_our_club)||null;
 }
 function setAuthMessage(message,type=''){
  const el=$('#authMessage');if(!el)return;el.textContent=message||'';el.className=`auth-message ${type}`.trim();
@@ -67,7 +125,8 @@ async function loadBackendIdentity(session){
  backendProfile=profileRes.data||null;
  backendRoles=(rolesRes.data||[]).map(x=>x.role);
  if(!backendRoles.length)throw new Error('Esta conta existe, mas ainda não tem nenhuma função atribuída na app.');
- backendConnected=!!settingsRes.data;
+ await loadBackendReferenceData(settingsRes.data||null);
+ backendConnected=backendReferenceLoaded&&!!settingsRes.data;
  configurePreviewSelector();
  mode=highestBackendRole(backendRoles);
  localStorage.setItem(MODE_KEY,mode);
@@ -644,8 +703,21 @@ function renderPeople(){const roles=['player','captain','staff','admin','member'
 function openUser(id=''){const u=id?state.users.find(x=>x.id===id):{name:'',email:'',roles:[],playerId:'',memberNumber:'',active:true};const po=state.players.map(p=>`<option value="${p.id}" ${u.playerId===p.id?'selected':''}>${esc(p.name)}</option>`).join('');openModal(id?'Editar pessoa':'Nova pessoa','Funções acumuláveis na mesma conta.',`<form id="userForm"><div class="form-grid"><div class="field"><label>Nome</label><input name="name" value="${esc(u.name)}" required></div><div class="field"><label>Email</label><input type="email" name="email" value="${esc(u.email||'')}"></div><div class="field"><label>Jogador associado</label><select name="playerId"><option value="">— Nenhum —</option>${po}</select></div><div class="field"><label>N.º sócio</label><input name="memberNumber" value="${esc(u.memberNumber||'')}"></div><div class="field full"><label>Funções</label><div class="checkboxes">${['player','captain','staff','admin','member'].map(r=>`<label class="check-pill"><input type="checkbox" name="roles" value="${r}" ${u.roles.includes(r)?'checked':''}>${roleLabel(r)}</label>`).join('')}</div></div></div><div class="form-actions"><button type="button" class="btn secondary" data-close>Cancelar</button><button class="btn">Guardar</button></div></form>`);$('#userForm').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.target);const data={name:fd.get('name'),email:fd.get('email'),playerId:fd.get('playerId'),memberNumber:fd.get('memberNumber'),roles:fd.getAll('roles'),active:true};if(id)Object.assign(u,data);else state.users.push({id:uid('u'),...data});closeModal();saveState('Acessos atualizados.')};$('[data-close]').onclick=closeModal}
 
 function renderSettings(){
- const diag={players:state.players.length,games:state.games.length,trainings:state.trainings.length,results:state.competitionResults.length,seasons:state.seasons.length};const autoSnap=autoBackupSnapshot();
- $('#view-settings').innerHTML=`<div class="settings-stack"><div class="card"><div class="card-head"><div><h3>Plano alimentar pré-jogo</h3><p>Base para a notificação enviada aos convocados na véspera.</p></div>${pill(state.settings.nutritionEnabled?'Ativo':'A aguardar plano',state.settings.nutritionEnabled?'green':'amber')}</div><div class="form-grid"><div class="field"><label>Peso de referência</label><select id="weightReference"><option value="pre" ${state.settings.weightReference==='pre'?'selected':''}>Peso pré-treino</option><option value="post" ${state.settings.weightReference==='post'?'selected':''}>Peso pós-treino</option><option value="mean" ${state.settings.weightReference==='mean'?'selected':''}>Média pré/pós</option></select></div><div class="field full"><label>Template do plano alimentar</label><textarea id="nutritionTemplate" placeholder="Mais tarde colocamos aqui o plano que vais fornecer. Variáveis disponíveis: {{peso_medio}}, {{jogador}}, {{adversario}}, {{data_jogo}}, {{hora_jogo}}.">${esc(state.settings.nutritionTemplate||'')}</textarea></div></div><div class="form-actions"><button class="btn" id="saveNutrition">Guardar configuração</button></div></div><div class="card"><div class="card-head"><div><h3>Classificação da competição</h3><p>Calculada localmente a partir dos resultados da competição.</p></div>${pill('Manual + automática','green')}</div><div class="note">Os resultados dos restantes clubes são introduzidos em <strong>Resultados</strong>. Os jogos do ADC Figueiras entram automaticamente assim que tiverem resultado e estiverem marcados para contar para a classificação.</div><div class="form-actions"><button class="btn secondary" id="openSeriesResultsSettings">Gerir resultados</button></div></div><div class="card backup-card"><div class="card-head"><div><h3>Backup dos dados</h3><p>Faz um backup antes de cada atualização importante.</p></div>${pill(state.settings.lastBackupAt?`Último: ${fmtDateTime(state.settings.lastBackupAt)}`:'Nunca criado',state.settings.lastBackupAt?'green':'amber')}</div><div class="inline-actions"><button class="btn" id="exportData">Exportar backup JSON</button><button class="btn secondary" id="importData">Importar backup</button>${autoSnap?'<button class="btn secondary" id="exportAutoBackup">Exportar snapshot automático</button>':''}</div>${autoSnap?`<div class="meta backup-meta">Snapshot automático local: ${fmtDateTime(autoSnap.savedAt)} · guarda o estado anterior à última alteração.</div>`:''}</div><div class="card"><div class="card-head"><div><h3>Diagnóstico da aplicação</h3><p>Resumo rápido para confirmar que os dados estão intactos.</p></div><span class="pill blue">v${APP_VERSION}</span></div><div class="diagnostic-grid"><div><span>Época ativa</span><strong>${esc(activeSeason()?.label||'—')}</strong></div><div><span>Jogadores</span><strong>${diag.players}</strong></div><div><span>Jogos Figueiras</span><strong>${diag.games}</strong></div><div><span>Treinos</span><strong>${diag.trainings}</strong></div><div><span>Jogos/resultados série</span><strong>${diag.results}</strong></div><div><span>Épocas guardadas</span><strong>${diag.seasons}</strong></div></div></div><div class="card"><div class="card-head"><div><h3>Backend / sincronização</h3><p>Próxima grande etapa da aplicação.</p></div></div><div class="warning-strip">Esta build ainda guarda os dados no dispositivo. A futura base de dados online permitirá contas reais, sincronização entre dispositivos, backups centrais e notificações push.</div></div><div class="card danger-zone"><div class="card-head"><div><h3>Dados locais</h3><p>Operação irreversível sem backup.</p></div></div><button class="btn danger" id="resetData">Repor V2</button></div></div>`;$('#openSeriesResultsSettings').onclick=()=>showView('seriesResults');$('#saveNutrition').onclick=()=>{state.settings.weightReference=$('#weightReference').value;state.settings.nutritionTemplate=$('#nutritionTemplate').value.trim();state.settings.nutritionEnabled=!!state.settings.nutritionTemplate;saveState('Configuração guardada.')};$('#exportData').onclick=exportData;$('#importData').onclick=()=>$('#importInput').click();$('#exportAutoBackup')&&($('#exportAutoBackup').onclick=exportAutoBackup);$('#resetData').onclick=()=>{if(confirm('Apagar os dados da V2 neste dispositivo?')){state=defaultState();saveState('Dados repostos.')}}
+ const diag={players:state.players.length,games:state.games.length,trainings:state.trainings.length,results:state.competitionResults.length,seasons:state.seasons.length};
+ const autoSnap=autoBackupSnapshot();
+ const bSeason=backendActiveSeason(),bClub=backendClubTeam();
+ const bCompetitions=backendReference.competitions||[],bTeams=backendReference.teams||[];
+ const backendSummary=backendReferenceLoaded
+  ?`<div class="diagnostic-grid"><div><span>Ligação</span><strong>Online</strong></div><div><span>Época ativa</span><strong>${esc(bSeason?.label||'—')}</strong></div><div><span>Clube</span><strong>${esc(bClub?.short_name||bClub?.name||'—')}</strong></div><div><span>Competições</span><strong>${bCompetitions.length}</strong></div><div><span>Equipas</span><strong>${bTeams.length}</strong></div><div><span>Schema backend</span><strong>${esc(String(backendReference.settings?.schema_version??'—'))}</strong></div></div><div class="tags" style="margin-top:12px">${bCompetitions.map(c=>pill(c.name,c.competition_type==='league'?'green':c.competition_type==='cup'?'amber':'gray')).join('')}</div>`
+  :`<div class="warning-strip">Ainda não foi possível carregar os dados de referência do Supabase.</div>`;
+ $('#view-settings').innerHTML=`<div class="settings-stack"><div class="card"><div class="card-head"><div><h3>Dados de referência online</h3><p>A V3 já lê época, competições e equipas diretamente do Supabase.</p></div>${pill(backendReferenceLoaded?'Sincronizado':'Pendente',backendReferenceLoaded?'green':'amber')}</div>${backendSummary}<div class="form-actions"><button class="btn secondary" id="refreshBackendReference">Atualizar dados online</button></div><div class="note">Nesta fase, estes dados de referência já vêm do backend. Jogos, jogadores, treinos, pesagens e multas continuam temporariamente no armazenamento local até os migrarmos nos próximos passos.</div></div><div class="card"><div class="card-head"><div><h3>Plano alimentar pré-jogo</h3><p>Base para a notificação enviada aos convocados na véspera.</p></div>${pill(state.settings.nutritionEnabled?'Ativo':'A aguardar plano',state.settings.nutritionEnabled?'green':'amber')}</div><div class="form-grid"><div class="field"><label>Peso de referência</label><select id="weightReference"><option value="pre" ${state.settings.weightReference==='pre'?'selected':''}>Peso pré-treino</option><option value="post" ${state.settings.weightReference==='post'?'selected':''}>Peso pós-treino</option><option value="mean" ${state.settings.weightReference==='mean'?'selected':''}>Média pré/pós</option></select></div><div class="field full"><label>Template do plano alimentar</label><textarea id="nutritionTemplate" placeholder="Mais tarde colocamos aqui o plano que vais fornecer. Variáveis disponíveis: {{peso_medio}}, {{jogador}}, {{adversario}}, {{data_jogo}}, {{hora_jogo}}.">${esc(state.settings.nutritionTemplate||'')}</textarea></div></div><div class="form-actions"><button class="btn" id="saveNutrition">Guardar configuração</button></div></div><div class="card"><div class="card-head"><div><h3>Classificação da competição</h3><p>Calculada localmente a partir dos resultados da competição.</p></div>${pill('Manual + automática','green')}</div><div class="note">Os resultados dos restantes clubes são introduzidos em <strong>Resultados</strong>. Os jogos do ADC Figueiras entram automaticamente assim que tiverem resultado e estiverem marcados para contar para a classificação.</div><div class="form-actions"><button class="btn secondary" id="openSeriesResultsSettings">Gerir resultados</button></div></div><div class="card backup-card"><div class="card-head"><div><h3>Backup dos dados locais</h3><p>Faz um backup antes de cada atualização importante durante a migração.</p></div>${pill(state.settings.lastBackupAt?`Último: ${fmtDateTime(state.settings.lastBackupAt)}`:'Nunca criado',state.settings.lastBackupAt?'green':'amber')}</div><div class="inline-actions"><button class="btn" id="exportData">Exportar backup JSON</button><button class="btn secondary" id="importData">Importar backup</button>${autoSnap?'<button class="btn secondary" id="exportAutoBackup">Exportar snapshot automático</button>':''}</div>${autoSnap?`<div class="meta backup-meta">Snapshot automático local: ${fmtDateTime(autoSnap.savedAt)} · guarda o estado anterior à última alteração.</div>`:''}</div><div class="card"><div class="card-head"><div><h3>Diagnóstico da aplicação</h3><p>Resumo rápido para confirmar que os dados locais continuam intactos durante a migração.</p></div><span class="pill blue">v${APP_VERSION}</span></div><div class="diagnostic-grid"><div><span>Época local</span><strong>${esc(activeSeason()?.label||'—')}</strong></div><div><span>Jogadores locais</span><strong>${diag.players}</strong></div><div><span>Jogos Figueiras locais</span><strong>${diag.games}</strong></div><div><span>Treinos locais</span><strong>${diag.trainings}</strong></div><div><span>Jogos/resultados locais</span><strong>${diag.results}</strong></div><div><span>Épocas locais</span><strong>${diag.seasons}</strong></div></div></div><div class="card danger-zone"><div class="card-head"><div><h3>Dados locais da V3</h3><p>Operação irreversível sem backup.</p></div></div><button class="btn danger" id="resetData">Repor dados locais de teste</button></div></div>`;
+ $('#refreshBackendReference').onclick=async()=>{try{await loadBackendReferenceData(backendReference.settings);renderChrome();renderView('settings');toast('Dados online atualizados.')}catch(err){console.error(err);toast('Não foi possível atualizar os dados online.')}};
+ $('#openSeriesResultsSettings').onclick=()=>showView('seriesResults');
+ $('#saveNutrition').onclick=()=>{state.settings.weightReference=$('#weightReference').value;state.settings.nutritionTemplate=$('#nutritionTemplate').value.trim();state.settings.nutritionEnabled=!!state.settings.nutritionTemplate;saveState('Configuração guardada.')};
+ $('#exportData').onclick=exportData;
+ $('#importData').onclick=()=>$('#importInput').click();
+ $('#exportAutoBackup')&&($('#exportAutoBackup').onclick=exportAutoBackup);
+ $('#resetData').onclick=()=>{if(confirm('Apagar os dados locais de teste da V3 neste dispositivo?')){state=defaultState();applyBackendReferenceMetadata();saveState('Dados locais repostos.')}};
 }
 function exportData(){state.settings.lastBackupAt=new Date().toISOString();localStorage.setItem(V2_KEY,JSON.stringify(state));const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`adc-figueiras-backup-${nowKey()}.json`;a.click();URL.revokeObjectURL(a.href);renderView(currentView);toast('Backup exportado.')}
 function exportAutoBackup(){const snap=autoBackupSnapshot();if(!snap?.data){toast('Ainda não existe snapshot automático.');return}const blob=new Blob([JSON.stringify(snap.data,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`adc-figueiras-snapshot-${nowKey()}.json`;a.click();URL.revokeObjectURL(a.href);toast('Snapshot automático exportado.')}
