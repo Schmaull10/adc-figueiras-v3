@@ -4,7 +4,7 @@ const V2_KEY='adc-figueiras-team-manager-v3-dev';
 const V1_KEY='adc-figueiras-team-manager-v3-legacy-unused';
 const MODE_KEY='adc-figueiras-v3-preview-mode';
 const AUTO_BACKUP_KEY='adc-figueiras-team-manager-v3-autobackup';
-const APP_VERSION='3.3.0-matches';
+const APP_VERSION='3.3.1-matches-hotfix';
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const pad=n=>String(n).padStart(2,'0');
@@ -1010,6 +1010,8 @@ function renderSettings(){
  $('#refreshBackendReference').onclick=async()=>{try{await loadBackendReferenceData(backendReference.settings);renderChrome();renderView('settings');toast('Dados online atualizados.')}catch(err){console.error(err);toast('Não foi possível atualizar os dados online.')}};
  $('#refreshBackendRoster')&&($('#refreshBackendRoster').onclick=async()=>{try{await loadBackendRosterData();renderChrome();renderView('settings');toast('Plantel online atualizado.')}catch(err){console.error(err);toast('Não foi possível atualizar o plantel online.')}});
  $('#createBackendRoster')&&($('#createBackendRoster').onclick=async()=>{if(!confirm(`Criar no Supabase o plantel atual com ${state.players.length} jogadores?`))return;const btn=$('#createBackendRoster');if(btn){btn.disabled=true;btn.textContent='A criar…'}try{const result=await createInitialBackendRoster();renderChrome();renderView('settings');toast(result.created?`Plantel online criado: ${result.count} jogadores.`:'O plantel online já existia.')}catch(err){console.error(err);alert(`Não foi possível criar o plantel online.\n\n${err?.message||'Erro desconhecido'}`);renderView('settings')}});
+ $('#refreshBackendMatches')&&($('#refreshBackendMatches').onclick=async()=>{try{await loadBackendMatchesData();renderChrome();renderView('settings');toast('Jogos online atualizados.')}catch(err){console.error(err);alert(`Não foi possível atualizar os jogos online.\n\n${err?.message||'Erro desconhecido'}`)}});
+ $('#createBackendMatches')&&($('#createBackendMatches').onclick=async()=>{if(!confirm('Criar no Supabase o calendário completo e os resultados atuais desta época?'))return;const btn=$('#createBackendMatches');if(btn){btn.disabled=true;btn.textContent='A criar calendário…'}try{const result=await createInitialBackendMatches();renderChrome();renderView('settings');toast(result.created?`Calendário online criado: ${result.count} jogos.`:`O calendário online já existia: ${result.count} jogos.`)}catch(err){console.error(err);alert(`Não foi possível criar o calendário online.\n\n${err?.message||'Erro desconhecido'}`);renderView('settings')}});
  $('#openSeriesResultsSettings').onclick=()=>showView('seriesResults');
  $('#saveNutrition').onclick=()=>{state.settings.weightReference=$('#weightReference').value;state.settings.nutritionTemplate=$('#nutritionTemplate').value.trim();state.settings.nutritionEnabled=!!state.settings.nutritionTemplate;saveState('Configuração guardada.')};
  $('#exportData').onclick=exportData;

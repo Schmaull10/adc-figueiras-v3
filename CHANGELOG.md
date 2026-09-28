@@ -1,3 +1,9 @@
+# V3.3.1 hotfix
+
+- Corrigido o botão **Criar calendário online**, que não tinha o evento de clique associado.
+- Corrigido o botão **Atualizar jogos online**.
+- Atualizada a versão do cache do service worker.
+
 # Changelog
 
 ## V3.3.0 — Calendário e resultados online
