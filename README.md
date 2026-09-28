@@ -15,3 +15,6 @@ Continuam por migrar integralmente para o backend:
 - notificações.
 
 A V2.10 estável deve continuar separada deste repositório de desenvolvimento.
+
+### V3.5
+Antes de publicar esta build, correr `V3_5_SQL_ATENDIMENTO_LESIONADO.sql` uma vez no SQL Editor do Supabase. Depois publicar normalmente os ficheiros da app.

@@ -12,3 +12,11 @@
 - Estatísticas continuam a ser calculadas pela interface, agora com dados do Match Center carregados do Supabase.
 
 Não são necessárias alterações ao esquema da base de dados: esta versão usa as tabelas `match_players` e `match_events` criadas no Bloco 4.
+
+## V3.5 — Treinos, presenças e pesagens online
+- Treinos da época ativa passam a carregar do Supabase.
+- Criação, edição e eliminação de treinos fica sincronizada online.
+- Presenças e pesagens pré/pós-treino ficam no Supabase.
+- Migração dos treinos locais existentes através de Definições.
+- Mantém o automatismo de multa por atraso através do trigger da base de dados.
+- Inclui migração SQL para suportar o estado de presença `injured` (Lesionado).
