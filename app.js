@@ -1,10 +1,10 @@
 'use strict';
 
-const V2_KEY='adc-figueiras-team-manager-v2';
-const V1_KEY='adc-figueiras-team-manager-v1';
-const MODE_KEY='adc-figueiras-v2-preview-mode';
-const AUTO_BACKUP_KEY='adc-figueiras-team-manager-v2-autobackup';
-const APP_VERSION='2.10.0';
+const V2_KEY='adc-figueiras-team-manager-v3-dev';
+const V1_KEY='adc-figueiras-team-manager-v3-legacy-unused';
+const MODE_KEY='adc-figueiras-v3-preview-mode';
+const AUTO_BACKUP_KEY='adc-figueiras-team-manager-v3-autobackup';
+const APP_VERSION='3.0.0-auth';
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const pad=n=>String(n).padStart(2,'0');
@@ -18,6 +18,104 @@ const fmtMonth=d=>new Intl.DateTimeFormat('pt-PT',{month:'long',year:'numeric'})
 const dateTimeOf=(date,time='23:59')=>new Date(`${date}T${time||'23:59'}:00`);
 const initials=n=>String(n||'?').trim().split(/\s+/).slice(0,2).map(x=>x[0]).join('').toUpperCase();
 const addDays=(iso,days)=>{const d=new Date(`${iso}T12:00:00`);d.setDate(d.getDate()+days);return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`};
+
+
+// V3 backend pilot — the publishable key is intentionally safe for browser use.
+// Real data protection is enforced by the Supabase RLS policies created in Blocks 1–7.
+const SUPABASE_URL='https://kfihltycbnambszmefqa.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY='sb_publishable_dF_bY-SgTQi3pWjIWt1ocA_unkhmtdm';
+let supabaseClient=null;
+let backendSession=null;
+let backendProfile=null;
+let backendRoles=[];
+let backendConnected=false;
+
+const roleRank=['public','member','player','captain','staff','admin'];
+function highestBackendRole(roles=[]){
+ const valid=roles.filter(r=>roleRank.includes(r));
+ if(!valid.length)return 'public';
+ return valid.sort((a,b)=>roleRank.indexOf(b)-roleRank.indexOf(a))[0];
+}
+function backendDisplayName(){
+ return backendProfile?.display_name||backendSession?.user?.email?.split('@')[0]||'Utilizador';
+}
+function setAuthMessage(message,type=''){
+ const el=$('#authMessage');if(!el)return;el.textContent=message||'';el.className=`auth-message ${type}`.trim();
+}
+function setAuthBusy(busy){
+ const btn=$('#loginBtn');if(btn){btn.disabled=busy;btn.textContent=busy?'A entrar…':'Entrar'}
+ const email=$('#loginEmail'),password=$('#loginPassword');if(email)email.disabled=busy;if(password)password.disabled=busy;
+}
+function showAuthGate(){
+ $('#authGate')?.classList.remove('hidden');$('#appShell')?.classList.add('auth-hidden');
+}
+function showAuthenticatedApp(){
+ $('#authGate')?.classList.add('hidden');$('#appShell')?.classList.remove('auth-hidden');
+}
+async function loadBackendIdentity(session){
+ backendSession=session;
+ const userId=session?.user?.id;
+ if(!userId)throw new Error('Sessão inválida.');
+ const [profileRes,rolesRes,settingsRes]=await Promise.all([
+  supabaseClient.from('profiles').select('id,display_name').eq('id',userId).maybeSingle(),
+  supabaseClient.from('user_roles').select('role').eq('user_id',userId),
+  supabaseClient.from('app_settings').select('app_name,schema_version,active_season_id,club_team_id').eq('id',true).maybeSingle()
+ ]);
+ if(profileRes.error)throw profileRes.error;
+ if(rolesRes.error)throw rolesRes.error;
+ if(settingsRes.error)throw settingsRes.error;
+ backendProfile=profileRes.data||null;
+ backendRoles=(rolesRes.data||[]).map(x=>x.role);
+ if(!backendRoles.length)throw new Error('Esta conta existe, mas ainda não tem nenhuma função atribuída na app.');
+ backendConnected=!!settingsRes.data;
+ configurePreviewSelector();
+ mode=highestBackendRole(backendRoles);
+ localStorage.setItem(MODE_KEY,mode);
+}
+function configurePreviewSelector(){
+ const sel=$('#previewMode');if(!sel)return;
+ const all=[['admin','Vista Admin'],['staff','Vista Equipa técnica'],['captain','Vista Capitão'],['player','Vista Jogador'],['member','Vista Sócio'],['public','Vista Pública']];
+ let allowed;
+ if(backendRoles.includes('admin'))allowed=all;
+ else {
+  const owned=new Set(backendRoles);
+  allowed=all.filter(([r])=>owned.has(r));
+  if(!allowed.length)allowed=[['public','Vista Pública']];
+ }
+ sel.innerHTML=allowed.map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
+ sel.title=backendRoles.includes('admin')?'Pré-visualizar permissões':'Função ativa';
+}
+async function signInV3(email,password){
+ setAuthBusy(true);setAuthMessage('');
+ try{
+  const {data,error}=await supabaseClient.auth.signInWithPassword({email,password});
+  if(error)throw error;
+  await loadBackendIdentity(data.session);
+  showAuthenticatedApp();
+  renderChrome();showView('dashboard');
+ }catch(err){
+  console.error(err);setAuthMessage(err?.message||'Não foi possível iniciar sessão.','error');
+  try{await supabaseClient.auth.signOut()}catch{}
+ }finally{setAuthBusy(false)}
+}
+async function signOutV3(){
+ try{await supabaseClient?.auth.signOut()}catch(e){console.warn(e)}
+ backendSession=null;backendProfile=null;backendRoles=[];backendConnected=false;mode='public';
+ showAuthGate();setAuthMessage('Sessão terminada.','ok');
+ const pw=$('#loginPassword');if(pw)pw.value='';
+}
+async function bootV3(){
+ showAuthGate();
+ if(!window.supabase?.createClient){setAuthMessage('Não foi possível carregar a ligação ao Supabase. Confirma que tens internet e atualiza a página.','error');return}
+ supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+ $('#loginForm').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.currentTarget);signInV3(String(fd.get('email')||'').trim(),String(fd.get('password')||''))};
+ $('#logoutBtn').onclick=signOutV3;
+ try{
+  const {data,error}=await supabaseClient.auth.getSession();if(error)throw error;
+  if(data.session){await loadBackendIdentity(data.session);showAuthenticatedApp();renderChrome();showView('dashboard')}
+  else showAuthGate();
+ }catch(err){console.error(err);setAuthMessage(`Ligação ao backend falhou: ${err?.message||'erro desconhecido'}`,'error');showAuthGate()}
+}
 
 const seedPlayers=[
  ['Batista','Jogador'],['David','Jogador'],['Rui Lopes','Jogador'],['João Barros','Jogador'],['Vítor Coelho','Jogador'],
@@ -126,7 +224,7 @@ function loadState(){
 }
 let state=loadState();
 let currentView='dashboard';
-let mode=localStorage.getItem(MODE_KEY)||'admin';
+let mode='public';
 let calendarCursor=new Date();calendarCursor.setDate(1);
 let toastTimer;
 let resultsCompetitionFilter='all';
@@ -348,7 +446,7 @@ function autoBackupSnapshot(){try{return JSON.parse(localStorage.getItem(AUTO_BA
 function renderChrome(){
  $('#previewMode').value=mode;
  const seasonSel=$('#seasonSelect');seasonSel.innerHTML=state.seasons.filter(s=>!s.archived||s.id===state.settings.activeSeasonId).map(s=>`<option value="${s.id}" ${s.id===state.settings.activeSeasonId?'selected':''}>${esc(s.label)}</option>`).join('');
- const user=currentUser();$('#profileName').textContent=user?.name||'Utilizador';$('#profileRoles').textContent=(user?.roles||[]).map(roleLabel).join(' · ');
+ const user=currentUser();const shownName=backendSession?backendDisplayName():(user?.name||'Utilizador');$('#profileName').textContent=shownName;$('#profileRoles').textContent=backendRoles.length?backendRoles.map(roleLabel).join(' · '):(user?.roles||[]).map(roleLabel).join(' · ');const av=$('#profileAvatar');if(av)av.textContent=initials(shownName);const cs=$('#connectionState');if(cs){cs.textContent=backendConnected?'Supabase ligado':'Ligação pendente';cs.classList.toggle('online',backendConnected)}
  let html='';navDefs.forEach(gr=>{const items=gr.items.filter(i=>can(i[0]));if(!items.length)return;html+=`<div class="nav-group">${gr.group}</div>`+items.map(i=>`<button class="nav-item ${currentView===i[0]?'active':''}" data-view="${i[0]}"><span class="nav-icon" style="--nav-icon-color:${i[3]}">${navIcon(i[1])}</span><span class="nav-label">${i[2]}</span></button>`).join('')});$('#nav').innerHTML=html;
  $$('.nav-item').forEach(b=>b.onclick=()=>showView(b.dataset.view));
  const unread=state.notifications.filter(n=>!n.read&&notificationVisible(n)).length;$('#notificationCount').textContent=unread;$('#notificationCount').classList.toggle('hidden',!unread);
@@ -560,4 +658,4 @@ $('#menuBtn').onclick=()=>$('#sidebar').classList.toggle('open');$('#closeModal'
 window.addEventListener('online',()=>$('#offlineBanner').classList.add('hidden'));window.addEventListener('offline',()=>$('#offlineBanner').classList.remove('hidden'));if(!navigator.onLine)$('#offlineBanner').classList.remove('hidden');
 if('serviceWorker'in navigator&&location.protocol!=='file:')navigator.serviceWorker.register('./sw.js').catch(()=>{});
 
-renderChrome();showView('dashboard');
+bootV3();

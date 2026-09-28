@@ -1,3 +1,13 @@
+# V3.0 Auth Pilot
+
+- Login real com Supabase (email + palavra-passe).
+- Leitura do perfil e roles reais (`user_roles`).
+- Confirmação da ligação através de `app_settings`.
+- Botão Sair e sessão persistente.
+- Admin pode continuar a pré-visualizar outras funções; restantes utilizadores só veem funções que possuem.
+- Armazenamento local de desenvolvimento isolado da V2.10 para não mexer nos dados da versão estável.
+- Nesta fase, apenas autenticação/permissões estão online; dados de jogos, treinos, pesagens e multas ainda permanecem locais até às próximas migrações.
+
 # V2.10.0 — Ícones de navegação
 
 - Novo conjunto de ícones desportivos no menu lateral.

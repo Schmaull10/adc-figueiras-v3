@@ -8,18 +8,36 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Figueiras" />
-  <title>ADC Figueiras · Clube</title>
+  <title>ADC Figueiras · V3</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png" />
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="app-shell">
+  <section class="auth-gate" id="authGate">
+    <div class="auth-card">
+      <div class="auth-logo"><img src="assets/adc-figueiras-emblema.png" alt="ADC Figueiras" /></div>
+      <div class="auth-copy">
+        <span class="auth-kicker">ADC FIGUEIRAS · V3</span>
+        <h1>Entrar</h1>
+        <p>Primeiro teste com contas reais. Nesta fase, a autenticação e as permissões já vêm do Supabase; os dados operacionais da app continuam locais enquanto fazemos a migração por etapas.</p>
+      </div>
+      <form id="loginForm" class="auth-form">
+        <label>Email<input id="loginEmail" name="email" type="email" autocomplete="email" required placeholder="teu@email.pt" /></label>
+        <label>Palavra-passe<input id="loginPassword" name="password" type="password" autocomplete="current-password" required placeholder="••••••••" /></label>
+        <button class="btn auth-submit" id="loginBtn" type="submit">Entrar</button>
+        <div class="auth-message" id="authMessage" aria-live="polite"></div>
+      </form>
+      <div class="auth-foot">Projeto de testes V3 · A V2.10 está separada e não é alterada.</div>
+    </div>
+  </section>
+
+  <div class="app-shell auth-hidden" id="appShell">
     <aside class="sidebar" id="sidebar">
       <div class="brand">
         <div class="brand-mark"><img src="assets/adc-figueiras-emblema.png" alt="Emblema ADC Figueiras" /></div>
-        <div><strong>ADC Figueiras</strong><span>Clube · V2.10 Preview</span></div>
+        <div><strong>ADC Figueiras</strong><span>Clube · V3 Auth Pilot</span></div>
       </div>
 
       <div class="season-switch">
@@ -31,10 +49,10 @@
 
       <div class="sidebar-foot">
         <div class="profile-mini">
-          <div class="avatar">DT</div>
+          <div class="avatar" id="profileAvatar">DT</div>
           <div><strong id="profileName">David</strong><small id="profileRoles">Jogador · Equipa técnica · Admin</small></div>
         </div>
-        <small>Preview local · preparada para backend</small>
+        <small id="sidebarBackendNote">V3 · autenticação Supabase</small>
       </div>
     </aside>
 
@@ -51,7 +69,9 @@
             <option value="member">Vista Sócio</option>
             <option value="public">Vista Pública</option>
           </select>
+          <span class="connection-state" id="connectionState">Ligação pendente</span>
           <button class="icon-btn" id="notificationBell" title="Notificações">🔔<span class="count" id="notificationCount">0</span></button>
+          <button class="btn secondary sm" id="logoutBtn" type="button">Sair</button>
         </div>
       </header>
 
@@ -87,6 +107,7 @@
 
   <input type="file" id="importInput" accept="application/json" hidden />
   <div class="toast" id="toast"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
