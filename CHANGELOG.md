@@ -1,3 +1,10 @@
+# V3.2 — Plantel Supabase
+
+- Migração guiada do plantel para o Supabase.
+- Plantel passa a carregar jogadores, números, posições e disponibilidade do backend.
+- Criar/editar jogador passa a guardar online após a migração.
+- Botões de estado e diagnóstico em Definições.
+
 # V3.1 — Referências Supabase
 
 - Login real mantido.

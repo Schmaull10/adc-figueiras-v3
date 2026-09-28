@@ -4,7 +4,7 @@ const V2_KEY='adc-figueiras-team-manager-v3-dev';
 const V1_KEY='adc-figueiras-team-manager-v3-legacy-unused';
 const MODE_KEY='adc-figueiras-v3-preview-mode';
 const AUTO_BACKUP_KEY='adc-figueiras-team-manager-v3-autobackup';
-const APP_VERSION='3.1.0-reference';
+const APP_VERSION='3.2.0-roster';
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const pad=n=>String(n).padStart(2,'0');
@@ -31,6 +31,8 @@ let backendRoles=[];
 let backendConnected=false;
 let backendReference={settings:null,seasons:[],competitions:[],teams:[],competitionTeams:[]};
 let backendReferenceLoaded=false;
+let backendRoster={seasonId:'',rows:[]};
+let backendRosterLoaded=false;
 
 const roleRank=['public','member','player','captain','staff','admin'];
 function highestBackendRole(roles=[]){
@@ -97,6 +99,145 @@ function backendActiveSeason(){
 function backendClubTeam(){
  return backendReference.teams.find(t=>t.id===backendReference.settings?.club_team_id)||backendReference.teams.find(t=>t.is_our_club)||null;
 }
+
+function dbAvailabilityToLocal(status){
+ return ({available:'Disponível',injured:'Lesionado',suspended:'Suspenso',absent:'Ausente',doubt:'Em dúvida'})[status]||'Disponível';
+}
+function localAvailabilityToDb(status){
+ return ({'Disponível':'available','Lesionado':'injured','Suspenso':'suspended','Ausente':'absent','Em dúvida':'doubt'})[normalizePlayerStatus(status)]||'available';
+}
+function applyBackendRosterToState(){
+ if(!backendRosterLoaded||!backendRoster.rows.length||typeof state==='undefined')return;
+ const previous=state.players||[];
+ state.players=backendRoster.rows.map(r=>{
+  const byBackend=previous.find(p=>p.backendId===r.player_id);
+  const byName=previous.find(p=>String(p.name||'').trim().toLowerCase()===String(r.name||'').trim().toLowerCase());
+  const old=byBackend||byName||{};
+  return {
+   ...old,
+   id:old.id||`db_${r.player_id}`,
+   backendId:r.player_id,
+   name:r.name,
+   position:r.position_group==='goalkeeper'?'GR':(r.position||'Jogador'),
+   number:r.shirt_number??'',
+   status:dbAvailabilityToLocal(r.availability_status),
+   active:r.active!==false
+  };
+ });
+ try{localStorage.setItem(V2_KEY,JSON.stringify(state))}catch{}
+}
+async function loadBackendRosterData(){
+ const season=backendActiveSeason();
+ if(!season){backendRoster={seasonId:'',rows:[]};backendRosterLoaded=true;return}
+ const seasonRes=await supabaseClient.from('season_players')
+  .select('season_id,player_id,shirt_number,position,position_group,active,joined_on,left_on')
+  .eq('season_id',season.id)
+  .eq('active',true);
+ if(seasonRes.error)throw seasonRes.error;
+ const seasonRows=seasonRes.data||[];
+ const ids=seasonRows.map(x=>x.player_id);
+ let playerRows=[],availabilityRows=[];
+ if(ids.length){
+  const [playersRes,availabilityRes]=await Promise.all([
+   supabaseClient.from('players').select('id,name,photo_url,active').in('id',ids),
+   supabaseClient.from('player_availability').select('season_id,player_id,status').eq('season_id',season.id).in('player_id',ids)
+  ]);
+  if(playersRes.error)throw playersRes.error;
+  if(availabilityRes.error)throw availabilityRes.error;
+  playerRows=playersRes.data||[];
+  availabilityRows=availabilityRes.data||[];
+ }
+ backendRoster={
+  seasonId:season.id,
+  rows:seasonRows.map(sp=>{
+   const p=playerRows.find(x=>x.id===sp.player_id)||{};
+   const a=availabilityRows.find(x=>x.player_id===sp.player_id);
+   return {...sp,name:p.name||'Jogador',photo_url:p.photo_url||'',player_active:p.active!==false,availability_status:a?.status||'available'};
+  }).sort((a,b)=>(Number(a.shirt_number||999)-Number(b.shirt_number||999))||String(a.name).localeCompare(String(b.name),'pt'))
+ };
+ backendRosterLoaded=true;
+ applyBackendRosterToState();
+}
+async function createInitialBackendRoster(){
+ if(!backendRoles.includes('admin')&&!backendRoles.includes('staff'))throw new Error('Sem permissão para criar o plantel.');
+ const season=backendActiveSeason();
+ if(!season)throw new Error('Não existe uma época ativa no Supabase.');
+ const current=await supabaseClient.from('season_players').select('player_id').eq('season_id',season.id);
+ if(current.error)throw current.error;
+ if((current.data||[]).length){
+  await loadBackendRosterData();
+  return {created:false,count:(current.data||[]).length};
+ }
+ const allPlayersRes=await supabaseClient.from('players').select('id,name');
+ if(allPlayersRes.error)throw allPlayersRes.error;
+ const existing=allPlayersRes.data||[];
+ const rows=[];
+ for(const local of state.players){
+  let remote=existing.find(x=>String(x.name).trim().toLowerCase()===String(local.name).trim().toLowerCase());
+  if(!remote){
+   const ins=await supabaseClient.from('players').insert({name:local.name,active:true}).select('id,name').single();
+   if(ins.error)throw ins.error;
+   remote=ins.data;
+   existing.push(remote);
+  }
+  rows.push({local,remote});
+ }
+ const seasonPayload=rows.map(({local,remote})=>({
+  season_id:season.id,
+  player_id:remote.id,
+  shirt_number:String(local.number||'').trim()===''?null:Number(local.number),
+  position:local.position||'Jogador',
+  position_group:local.position==='GR'?'goalkeeper':'field',
+  active:true
+ }));
+ const seasonUpsert=await supabaseClient.from('season_players').upsert(seasonPayload,{onConflict:'season_id,player_id'});
+ if(seasonUpsert.error)throw seasonUpsert.error;
+ const availabilityPayload=rows.map(({local,remote})=>({
+  season_id:season.id,
+  player_id:remote.id,
+  status:localAvailabilityToDb(local.status)
+ }));
+ const availabilityUpsert=await supabaseClient.from('player_availability').upsert(availabilityPayload,{onConflict:'season_id,player_id'});
+ if(availabilityUpsert.error)throw availabilityUpsert.error;
+ await loadBackendRosterData();
+ return {created:true,count:rows.length};
+}
+async function saveBackendPlayer(localPlayer,data,isNew=false){
+ const season=backendActiveSeason();
+ if(!season)throw new Error('Não existe uma época ativa no Supabase.');
+ const name=String(data.name||'').trim();
+ if(!name)throw new Error('O nome do jogador é obrigatório.');
+ const numberText=String(data.number||'').trim();
+ const shirtNumber=numberText===''?null:Number(numberText);
+ if(shirtNumber!==null&&(!Number.isInteger(shirtNumber)||shirtNumber<1||shirtNumber>99))throw new Error('O número deve estar entre 1 e 99.');
+ let playerId=localPlayer?.backendId||'';
+ if(playerId){
+  const upd=await supabaseClient.from('players').update({name,active:true}).eq('id',playerId);
+  if(upd.error)throw upd.error;
+ }else{
+  const ins=await supabaseClient.from('players').insert({name,active:true}).select('id').single();
+  if(ins.error)throw ins.error;
+  playerId=ins.data.id;
+ }
+ const seasonRow={
+  season_id:season.id,
+  player_id:playerId,
+  shirt_number:shirtNumber,
+  position:data.position||'Jogador',
+  position_group:data.position==='GR'?'goalkeeper':'field',
+  active:true
+ };
+ const seasonUpsert=await supabaseClient.from('season_players').upsert(seasonRow,{onConflict:'season_id,player_id'});
+ if(seasonUpsert.error)throw seasonUpsert.error;
+ const av=await supabaseClient.from('player_availability').upsert({
+  season_id:season.id,
+  player_id:playerId,
+  status:localAvailabilityToDb(data.status)
+ },{onConflict:'season_id,player_id'});
+ if(av.error)throw av.error;
+ await loadBackendRosterData();
+ return playerId;
+}
 function setAuthMessage(message,type=''){
  const el=$('#authMessage');if(!el)return;el.textContent=message||'';el.className=`auth-message ${type}`.trim();
 }
@@ -126,6 +267,7 @@ async function loadBackendIdentity(session){
  backendRoles=(rolesRes.data||[]).map(x=>x.role);
  if(!backendRoles.length)throw new Error('Esta conta existe, mas ainda não tem nenhuma função atribuída na app.');
  await loadBackendReferenceData(settingsRes.data||null);
+ await loadBackendRosterData();
  backendConnected=backendReferenceLoaded&&!!settingsRes.data;
  configurePreviewSelector();
  mode=highestBackendRole(backendRoles);
@@ -623,7 +765,30 @@ function renderSquad(){
  $('#view-squad').innerHTML=`<div class="section-head"><div><h2>Plantel</h2><p>Plantel visual, disponibilidade e estatísticas da época.</p></div>${canEdit()?'<button class="btn" id="addPlayer">＋ Jogador</button>':''}</div><div class="squad-grid">${sorted.map(p=>{const s=stats[p.id]||{};return `<article class="squad-card" data-player-profile="${p.id}"><div class="squad-card-top"><div class="squad-number ${p.position==='GR'?'keeper':'field'}">${esc(p.number||'—')}</div><div class="squad-identity"><div class="eyebrow">${esc(p.position||'Jogador')}</div><h3>${esc(p.name)}</h3>${pill(normalizePlayerStatus(p.status),statusPillType(p.status))}</div></div><div class="squad-mini-stats"><span><strong>${s.games||0}</strong> jogos</span><span><strong>${s.goals||0}</strong> G</span><span><strong>${s.assists||0}</strong> A</span></div><div class="squad-actions"><button class="btn secondary sm view-player" data-id="${p.id}">Ficha</button>${canEdit()?`<button class="btn secondary sm edit-player" data-id="${p.id}">Editar</button>`:''}</div></article>`}).join('')}</div>`;$('#addPlayer')&&($('#addPlayer').onclick=()=>openPlayer());$$('.view-player').forEach(b=>b.onclick=e=>{e.stopPropagation();openPlayerProfile(b.dataset.id)});$$('.squad-card').forEach(r=>r.onclick=()=>openPlayerProfile(r.dataset.playerProfile));$$('.edit-player').forEach(b=>b.onclick=e=>{e.stopPropagation();openPlayer(b.dataset.id)})
 }
 function openPlayer(id=''){
- const p=id?playerById(id):{id:'',name:'',position:'Jogador',number:'',status:'Disponível'};openModal(id?'Editar jogador':'Novo jogador','Dados básicos do plantel.',`<form id="playerForm"><div class="form-grid"><div class="field full"><label>Nome *</label><input name="name" value="${esc(p.name)}" required></div><div class="field"><label>Posição</label><select name="position"><option ${p.position==='Jogador'?'selected':''}>Jogador</option><option ${p.position==='GR'?'selected':''}>GR</option></select></div><div class="field"><label>Número</label><input name="number" value="${esc(p.number||'')}"></div><div class="field"><label>Estado</label><select name="status">${['Disponível','Lesionado','Suspenso','Ausente','Em dúvida'].map(x=>`<option ${normalizePlayerStatus(p.status)===x?'selected':''}>${x}</option>`).join('')}</select></div></div><div class="form-actions"><button type="button" class="btn secondary" data-close>Cancelar</button><button class="btn">Guardar</button></div></form>`);$('#playerForm').onsubmit=e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target));if(id)Object.assign(p,d);else state.players.push({id:uid('p'),...d});closeModal();saveState('Plantel atualizado.')};$('[data-close]').onclick=closeModal
+ const p=id?playerById(id):{id:'',name:'',position:'Jogador',number:'',status:'Disponível'};
+ openModal(id?'Editar jogador':'Novo jogador','Dados básicos do plantel.',`<form id="playerForm"><div class="form-grid"><div class="field full"><label>Nome *</label><input name="name" value="${esc(p.name)}" required></div><div class="field"><label>Posição</label><select name="position"><option ${p.position==='Jogador'?'selected':''}>Jogador</option><option ${p.position==='GR'?'selected':''}>GR</option></select></div><div class="field"><label>Número</label><input type="number" min="1" max="99" name="number" value="${esc(p.number||'')}"></div><div class="field"><label>Estado</label><select name="status">${['Disponível','Lesionado','Suspenso','Ausente','Em dúvida'].map(x=>`<option ${normalizePlayerStatus(p.status)===x?'selected':''}>${x}</option>`).join('')}</select></div></div><div class="form-actions"><button type="button" class="btn secondary" data-close>Cancelar</button><button class="btn" id="savePlayerBtn">Guardar</button></div></form>`);
+ $('#playerForm').onsubmit=async e=>{
+  e.preventDefault();
+  const d=Object.fromEntries(new FormData(e.target));
+  const btn=$('#savePlayerBtn');if(btn){btn.disabled=true;btn.textContent='A guardar…'}
+  try{
+   if(backendConnected&&backendRosterLoaded&&backendRoster.rows.length){
+    await saveBackendPlayer(id?p:null,d,!id);
+    closeModal();
+    renderChrome();
+    renderView(currentView);
+    toast('Plantel guardado no Supabase.');
+   }else{
+    if(id)Object.assign(p,d);else state.players.push({id:uid('p'),...d});
+    closeModal();saveState('Plantel atualizado.');
+   }
+  }catch(err){
+   console.error(err);
+   alert(`Não foi possível guardar o jogador no Supabase.\n\n${err?.message||'Erro desconhecido'}`);
+   if(btn){btn.disabled=false;btn.textContent='Guardar'}
+  }
+ };
+ $('[data-close]').onclick=closeModal
 }
 function renderPlayerProfile(){
  const p=playerById(selectedPlayerId)||state.players[0];if(!p){$('#view-player').innerHTML=empty('Sem jogadores');return}selectedPlayerId=p.id;sessionStorage.setItem('playerView',p.id);const s=playerStats()[p.id]||{};const privateOk=privatePlayerAccess();const att=playerAttendanceStats(p.id);const weights=playerWeightRows(p.id);const fines=playerFineRows(p.id);const latest=weights[0];const pending=fines.filter(f=>!f.paid).reduce((sum,f)=>sum+Number(f.amount||0),0);
@@ -707,11 +872,14 @@ function renderSettings(){
  const autoSnap=autoBackupSnapshot();
  const bSeason=backendActiveSeason(),bClub=backendClubTeam();
  const bCompetitions=backendReference.competitions||[],bTeams=backendReference.teams||[];
+ const rosterCount=backendRoster.rows?.length||0;
  const backendSummary=backendReferenceLoaded
   ?`<div class="diagnostic-grid"><div><span>Ligação</span><strong>Online</strong></div><div><span>Época ativa</span><strong>${esc(bSeason?.label||'—')}</strong></div><div><span>Clube</span><strong>${esc(bClub?.short_name||bClub?.name||'—')}</strong></div><div><span>Competições</span><strong>${bCompetitions.length}</strong></div><div><span>Equipas</span><strong>${bTeams.length}</strong></div><div><span>Schema backend</span><strong>${esc(String(backendReference.settings?.schema_version??'—'))}</strong></div></div><div class="tags" style="margin-top:12px">${bCompetitions.map(c=>pill(c.name,c.competition_type==='league'?'green':c.competition_type==='cup'?'amber':'gray')).join('')}</div>`
   :`<div class="warning-strip">Ainda não foi possível carregar os dados de referência do Supabase.</div>`;
- $('#view-settings').innerHTML=`<div class="settings-stack"><div class="card"><div class="card-head"><div><h3>Dados de referência online</h3><p>A V3 já lê época, competições e equipas diretamente do Supabase.</p></div>${pill(backendReferenceLoaded?'Sincronizado':'Pendente',backendReferenceLoaded?'green':'amber')}</div>${backendSummary}<div class="form-actions"><button class="btn secondary" id="refreshBackendReference">Atualizar dados online</button></div><div class="note">Nesta fase, estes dados de referência já vêm do backend. Jogos, jogadores, treinos, pesagens e multas continuam temporariamente no armazenamento local até os migrarmos nos próximos passos.</div></div><div class="card"><div class="card-head"><div><h3>Plano alimentar pré-jogo</h3><p>Base para a notificação enviada aos convocados na véspera.</p></div>${pill(state.settings.nutritionEnabled?'Ativo':'A aguardar plano',state.settings.nutritionEnabled?'green':'amber')}</div><div class="form-grid"><div class="field"><label>Peso de referência</label><select id="weightReference"><option value="pre" ${state.settings.weightReference==='pre'?'selected':''}>Peso pré-treino</option><option value="post" ${state.settings.weightReference==='post'?'selected':''}>Peso pós-treino</option><option value="mean" ${state.settings.weightReference==='mean'?'selected':''}>Média pré/pós</option></select></div><div class="field full"><label>Template do plano alimentar</label><textarea id="nutritionTemplate" placeholder="Mais tarde colocamos aqui o plano que vais fornecer. Variáveis disponíveis: {{peso_medio}}, {{jogador}}, {{adversario}}, {{data_jogo}}, {{hora_jogo}}.">${esc(state.settings.nutritionTemplate||'')}</textarea></div></div><div class="form-actions"><button class="btn" id="saveNutrition">Guardar configuração</button></div></div><div class="card"><div class="card-head"><div><h3>Classificação da competição</h3><p>Calculada localmente a partir dos resultados da competição.</p></div>${pill('Manual + automática','green')}</div><div class="note">Os resultados dos restantes clubes são introduzidos em <strong>Resultados</strong>. Os jogos do ADC Figueiras entram automaticamente assim que tiverem resultado e estiverem marcados para contar para a classificação.</div><div class="form-actions"><button class="btn secondary" id="openSeriesResultsSettings">Gerir resultados</button></div></div><div class="card backup-card"><div class="card-head"><div><h3>Backup dos dados locais</h3><p>Faz um backup antes de cada atualização importante durante a migração.</p></div>${pill(state.settings.lastBackupAt?`Último: ${fmtDateTime(state.settings.lastBackupAt)}`:'Nunca criado',state.settings.lastBackupAt?'green':'amber')}</div><div class="inline-actions"><button class="btn" id="exportData">Exportar backup JSON</button><button class="btn secondary" id="importData">Importar backup</button>${autoSnap?'<button class="btn secondary" id="exportAutoBackup">Exportar snapshot automático</button>':''}</div>${autoSnap?`<div class="meta backup-meta">Snapshot automático local: ${fmtDateTime(autoSnap.savedAt)} · guarda o estado anterior à última alteração.</div>`:''}</div><div class="card"><div class="card-head"><div><h3>Diagnóstico da aplicação</h3><p>Resumo rápido para confirmar que os dados locais continuam intactos durante a migração.</p></div><span class="pill blue">v${APP_VERSION}</span></div><div class="diagnostic-grid"><div><span>Época local</span><strong>${esc(activeSeason()?.label||'—')}</strong></div><div><span>Jogadores locais</span><strong>${diag.players}</strong></div><div><span>Jogos Figueiras locais</span><strong>${diag.games}</strong></div><div><span>Treinos locais</span><strong>${diag.trainings}</strong></div><div><span>Jogos/resultados locais</span><strong>${diag.results}</strong></div><div><span>Épocas locais</span><strong>${diag.seasons}</strong></div></div></div><div class="card danger-zone"><div class="card-head"><div><h3>Dados locais da V3</h3><p>Operação irreversível sem backup.</p></div></div><button class="btn danger" id="resetData">Repor dados locais de teste</button></div></div>`;
+ $('#view-settings').innerHTML=`<div class="settings-stack"><div class="card"><div class="card-head"><div><h3>Dados de referência online</h3><p>A V3 já lê época, competições e equipas diretamente do Supabase.</p></div>${pill(backendReferenceLoaded?'Sincronizado':'Pendente',backendReferenceLoaded?'green':'amber')}</div>${backendSummary}<div class="form-actions"><button class="btn secondary" id="refreshBackendReference">Atualizar dados online</button></div><div class="note">Época, competições e equipas já vêm do backend.</div></div><div class="card"><div class="card-head"><div><h3>Plantel online</h3><p>Jogadores da época ativa guardados no Supabase.</p></div>${pill(rosterCount?`${rosterCount} jogadores`:'Ainda local',rosterCount?'green':'amber')}</div>${rosterCount?`<div class="note">O Plantel já está a ser carregado do Supabase. Alterações de nome, número, posição e estado feitas na V3 ficam guardadas online.</div><div class="form-actions"><button class="btn secondary" id="refreshBackendRoster">Atualizar plantel online</button></div>`:`<div class="warning-strip">O plantel ainda não foi migrado. O botão abaixo cria no Supabase os ${state.players.length} jogadores atualmente existentes na V3.</div><div class="form-actions"><button class="btn" id="createBackendRoster">Criar plantel online</button></div>`}</div><div class="card"><div class="card-head"><div><h3>Plano alimentar pré-jogo</h3><p>Base para a notificação enviada aos convocados na véspera.</p></div>${pill(state.settings.nutritionEnabled?'Ativo':'A aguardar plano',state.settings.nutritionEnabled?'green':'amber')}</div><div class="form-grid"><div class="field"><label>Peso de referência</label><select id="weightReference"><option value="pre" ${state.settings.weightReference==='pre'?'selected':''}>Peso pré-treino</option><option value="post" ${state.settings.weightReference==='post'?'selected':''}>Peso pós-treino</option><option value="mean" ${state.settings.weightReference==='mean'?'selected':''}>Média pré/pós</option></select></div><div class="field full"><label>Template do plano alimentar</label><textarea id="nutritionTemplate" placeholder="Mais tarde colocamos aqui o plano que vais fornecer. Variáveis disponíveis: {{peso_medio}}, {{jogador}}, {{adversario}}, {{data_jogo}}, {{hora_jogo}}.">${esc(state.settings.nutritionTemplate||'')}</textarea></div></div><div class="form-actions"><button class="btn" id="saveNutrition">Guardar configuração</button></div></div><div class="card"><div class="card-head"><div><h3>Classificação da competição</h3><p>Calculada localmente a partir dos resultados da competição.</p></div>${pill('Manual + automática','green')}</div><div class="note">Os resultados dos restantes clubes são introduzidos em <strong>Resultados</strong>. Os jogos do ADC Figueiras entram automaticamente assim que tiverem resultado e estiverem marcados para contar para a classificação.</div><div class="form-actions"><button class="btn secondary" id="openSeriesResultsSettings">Gerir resultados</button></div></div><div class="card backup-card"><div class="card-head"><div><h3>Backup dos dados locais</h3><p>Faz um backup antes de cada atualização importante durante a migração.</p></div>${pill(state.settings.lastBackupAt?`Último: ${fmtDateTime(state.settings.lastBackupAt)}`:'Nunca criado',state.settings.lastBackupAt?'green':'amber')}</div><div class="inline-actions"><button class="btn" id="exportData">Exportar backup JSON</button><button class="btn secondary" id="importData">Importar backup</button>${autoSnap?'<button class="btn secondary" id="exportAutoBackup">Exportar snapshot automático</button>':''}</div>${autoSnap?`<div class="meta backup-meta">Snapshot automático local: ${fmtDateTime(autoSnap.savedAt)} · guarda o estado anterior à última alteração.</div>`:''}</div><div class="card"><div class="card-head"><div><h3>Diagnóstico da aplicação</h3><p>Resumo rápido para confirmar que os dados locais continuam intactos durante a migração.</p></div><span class="pill blue">v${APP_VERSION}</span></div><div class="diagnostic-grid"><div><span>Época local</span><strong>${esc(activeSeason()?.label||'—')}</strong></div><div><span>Jogadores carregados</span><strong>${diag.players}</strong></div><div><span>Jogos Figueiras locais</span><strong>${diag.games}</strong></div><div><span>Treinos locais</span><strong>${diag.trainings}</strong></div><div><span>Jogos/resultados locais</span><strong>${diag.results}</strong></div><div><span>Épocas locais</span><strong>${diag.seasons}</strong></div></div></div><div class="card danger-zone"><div class="card-head"><div><h3>Dados locais da V3</h3><p>Operação irreversível sem backup.</p></div></div><button class="btn danger" id="resetData">Repor dados locais de teste</button></div></div>`;
  $('#refreshBackendReference').onclick=async()=>{try{await loadBackendReferenceData(backendReference.settings);renderChrome();renderView('settings');toast('Dados online atualizados.')}catch(err){console.error(err);toast('Não foi possível atualizar os dados online.')}};
+ $('#refreshBackendRoster')&&($('#refreshBackendRoster').onclick=async()=>{try{await loadBackendRosterData();renderChrome();renderView('settings');toast('Plantel online atualizado.')}catch(err){console.error(err);toast('Não foi possível atualizar o plantel online.')}});
+ $('#createBackendRoster')&&($('#createBackendRoster').onclick=async()=>{if(!confirm(`Criar no Supabase o plantel atual com ${state.players.length} jogadores?`))return;const btn=$('#createBackendRoster');if(btn){btn.disabled=true;btn.textContent='A criar…'}try{const result=await createInitialBackendRoster();renderChrome();renderView('settings');toast(result.created?`Plantel online criado: ${result.count} jogadores.`:'O plantel online já existia.')}catch(err){console.error(err);alert(`Não foi possível criar o plantel online.\n\n${err?.message||'Erro desconhecido'}`);renderView('settings')}});
  $('#openSeriesResultsSettings').onclick=()=>showView('seriesResults');
  $('#saveNutrition').onclick=()=>{state.settings.weightReference=$('#weightReference').value;state.settings.nutritionTemplate=$('#nutritionTemplate').value.trim();state.settings.nutritionEnabled=!!state.settings.nutritionTemplate;saveState('Configuração guardada.')};
  $('#exportData').onclick=exportData;
