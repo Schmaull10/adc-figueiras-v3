@@ -4,7 +4,7 @@ const V2_KEY='adc-figueiras-team-manager-v3-dev';
 const V1_KEY='adc-figueiras-team-manager-v3-legacy-unused';
 const MODE_KEY='adc-figueiras-v3-preview-mode';
 const AUTO_BACKUP_KEY='adc-figueiras-team-manager-v3-autobackup';
-const APP_VERSION='3.8-open-registration';
+const APP_VERSION='3.8.1-public-access-fix';
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const pad=n=>String(n).padStart(2,'0');
@@ -193,7 +193,9 @@ function applyBackendRosterToState(){
    name:r.name,
    position:r.position_group==='goalkeeper'?'GR':(r.position||'Jogador'),
    number:r.shirt_number??'',
-   status:dbAvailabilityToLocal(r.availability_status),
+   // Disponibilidade é informação interna. Em área pública / utilizador
+   // registado / sócio, não inventamos nem carregamos este estado.
+   status:r.availability_status?dbAvailabilityToLocal(r.availability_status):null,
    active:r.active!==false
   };
  });
@@ -210,22 +212,25 @@ async function loadBackendRosterData(){
  const seasonRows=seasonRes.data||[];
  const ids=seasonRows.map(x=>x.player_id);
  let playerRows=[],availabilityRows=[];
+ // A tabela player_availability é privada por desenho (RLS). Só a consultamos
+ // quando a sessão tem uma função interna autorizada.
+ const canLoadAvailability=!!backendSession&&backendRoles.some(r=>['admin','staff','captain','player'].includes(r));
  if(ids.length){
-  const [playersRes,availabilityRes]=await Promise.all([
-   supabaseClient.from('players').select('id,name,photo_url,active').in('id',ids),
-   supabaseClient.from('player_availability').select('season_id,player_id,status').eq('season_id',season.id).in('player_id',ids)
-  ]);
+  const playersRes=await supabaseClient.from('players').select('id,name,photo_url,active').in('id',ids);
   if(playersRes.error)throw playersRes.error;
-  if(availabilityRes.error)throw availabilityRes.error;
   playerRows=playersRes.data||[];
-  availabilityRows=availabilityRes.data||[];
+  if(canLoadAvailability){
+   const availabilityRes=await supabaseClient.from('player_availability').select('season_id,player_id,status').eq('season_id',season.id).in('player_id',ids);
+   if(availabilityRes.error)throw availabilityRes.error;
+   availabilityRows=availabilityRes.data||[];
+  }
  }
  backendRoster={
   seasonId:season.id,
   rows:seasonRows.map(sp=>{
    const p=playerRows.find(x=>x.id===sp.player_id)||{};
    const a=availabilityRows.find(x=>x.player_id===sp.player_id);
-   return {...sp,name:p.name||'Jogador',photo_url:p.photo_url||'',player_active:p.active!==false,availability_status:a?.status||'available'};
+   return {...sp,name:p.name||'Jogador',photo_url:p.photo_url||'',player_active:p.active!==false,availability_status:canLoadAvailability?(a?.status||'available'):null};
   }).sort((a,b)=>(Number(a.shirt_number||999)-Number(b.shirt_number||999))||String(a.name).localeCompare(String(b.name),'pt'))
  };
  backendRosterLoaded=true;
@@ -1358,7 +1363,7 @@ function openPlayer(id=''){
 }
 function renderPlayerProfile(){
  const p=playerById(selectedPlayerId)||state.players[0];if(!p){$('#view-player').innerHTML=empty('Sem jogadores');return}selectedPlayerId=p.id;sessionStorage.setItem('playerView',p.id);const s=playerStats()[p.id]||{};const privateOk=privatePlayerAccess();const att=playerAttendanceStats(p.id);const weights=playerWeightRows(p.id);const fines=playerFineRows(p.id);const latest=weights[0];const pending=fines.filter(f=>fineStatus(f)==='pending').reduce((sum,f)=>sum+Number(f.amount||0),0);
- $('#view-player').innerHTML=`<div class="section-head"><div><button class="back-link" id="backSquad">← Plantel</button><h2>${esc(p.name)}</h2><p>#${esc(p.number||'—')} · ${esc(p.position||'Jogador')}</p></div>${canEdit()?`<button class="btn secondary" id="editProfilePlayer">Editar jogador</button>`:''}</div><div class="player-profile-hero card"><div class="profile-number ${p.position==='GR'?'keeper':'field'}">${esc(p.number||'—')}</div><div><div class="eyebrow">${esc(p.position||'Jogador')}</div><h2>${esc(p.name)}</h2><div class="tags">${pill(normalizePlayerStatus(p.status),statusPillType(p.status))}</div></div></div><div style="height:15px"></div><div class="grid kpis player-kpis"><div class="card kpi"><div class="label">Convocatórias</div><div class="value">${s.callups||0}</div></div><div class="card kpi"><div class="label">Jogos</div><div class="value">${s.games||0}</div></div><div class="card kpi"><div class="label">Titularidades</div><div class="value">${s.starts||0}</div></div><div class="card kpi"><div class="label">Golos</div><div class="value">${s.goals||0}</div></div><div class="card kpi"><div class="label">Assistências</div><div class="value">${s.assists||0}</div></div><div class="card kpi"><div class="label">Cartões</div><div class="value cards-value"><span>🟨 ${s.yellow||0}</span><span>🟥 ${s.red||0}</span></div></div></div><div style="height:15px"></div><div class="card"><div class="card-head"><div><h3>Últimos 5 jogos</h3><p>Últimas utilizações · adversário, contribuições para golo e disciplina.</p></div></div>${playerRecentGamesHtml(p.id)}</div>${privateOk?`<div style="height:15px"></div><div class="grid two"><div class="card"><div class="card-head"><div><h3>Treinos</h3><p>Área interna.</p></div></div><div class="private-stat"><strong>${att.present}</strong><span>presenças</span></div><div class="private-stat"><strong>${att.pct}%</strong><span>assiduidade (${att.present}/${att.recorded||0})</span></div></div><div class="card"><div class="card-head"><div><h3>Pesagens</h3><p>Último registo.</p></div></div>${latest?`<div class="grid equal2"><div><div class="weight-label">Último pré</div><div class="weight-number">${latest.pre?`${Number(latest.pre).toFixed(1)} kg`:'—'}</div></div><div><div class="weight-label">Último pós</div><div class="weight-number">${latest.post?`${Number(latest.post).toFixed(1)} kg`:'—'}</div></div></div>`:empty('Sem pesagens registadas')}</div></div><div style="height:15px"></div><div class="card"><div class="card-head"><div><h3>Evolução do peso</h3><p>Visível apenas a jogadores e equipa técnica.</p></div></div>${weightChartHtml(p.id)}</div><div style="height:15px"></div><div class="card"><div class="card-head"><div><h3>Multas</h3><p>Histórico interno da época.</p></div><strong>${money(pending)} pendente</strong></div>${fines.length?`<div class="table-wrap"><table><thead><tr><th>Data</th><th>Motivo</th><th>Valor</th><th>Estado</th></tr></thead><tbody>${fines.map(f=>`<tr><td>${fmtDate(f.date)}</td><td>${esc(f.reason)}</td><td>${money(f.amount)}</td><td>${pill(fineStatusLabel(fineStatus(f)),fineStatusPill(fineStatus(f)))}</td></tr>`).join('')}</tbody></table></div>`:empty('Sem multas registadas')}</div>`:''}`;
+ $('#view-player').innerHTML=`<div class="section-head"><div><button class="back-link" id="backSquad">← Plantel</button><h2>${esc(p.name)}</h2><p>#${esc(p.number||'—')} · ${esc(p.position||'Jogador')}</p></div>${canEdit()?`<button class="btn secondary" id="editProfilePlayer">Editar jogador</button>`:''}</div><div class="player-profile-hero card"><div class="profile-number ${p.position==='GR'?'keeper':'field'}">${esc(p.number||'—')}</div><div><div class="eyebrow">${esc(p.position||'Jogador')}</div><h2>${esc(p.name)}</h2>${privateOk?`<div class="tags">${pill(normalizePlayerStatus(p.status),statusPillType(p.status))}</div>`:''}</div></div><div style="height:15px"></div><div class="grid kpis player-kpis"><div class="card kpi"><div class="label">Convocatórias</div><div class="value">${s.callups||0}</div></div><div class="card kpi"><div class="label">Jogos</div><div class="value">${s.games||0}</div></div><div class="card kpi"><div class="label">Titularidades</div><div class="value">${s.starts||0}</div></div><div class="card kpi"><div class="label">Golos</div><div class="value">${s.goals||0}</div></div><div class="card kpi"><div class="label">Assistências</div><div class="value">${s.assists||0}</div></div><div class="card kpi"><div class="label">Cartões</div><div class="value cards-value"><span>🟨 ${s.yellow||0}</span><span>🟥 ${s.red||0}</span></div></div></div><div style="height:15px"></div><div class="card"><div class="card-head"><div><h3>Últimos 5 jogos</h3><p>Últimas utilizações · adversário, contribuições para golo e disciplina.</p></div></div>${playerRecentGamesHtml(p.id)}</div>${privateOk?`<div style="height:15px"></div><div class="grid two"><div class="card"><div class="card-head"><div><h3>Treinos</h3><p>Área interna.</p></div></div><div class="private-stat"><strong>${att.present}</strong><span>presenças</span></div><div class="private-stat"><strong>${att.pct}%</strong><span>assiduidade (${att.present}/${att.recorded||0})</span></div></div><div class="card"><div class="card-head"><div><h3>Pesagens</h3><p>Último registo.</p></div></div>${latest?`<div class="grid equal2"><div><div class="weight-label">Último pré</div><div class="weight-number">${latest.pre?`${Number(latest.pre).toFixed(1)} kg`:'—'}</div></div><div><div class="weight-label">Último pós</div><div class="weight-number">${latest.post?`${Number(latest.post).toFixed(1)} kg`:'—'}</div></div></div>`:empty('Sem pesagens registadas')}</div></div><div style="height:15px"></div><div class="card"><div class="card-head"><div><h3>Evolução do peso</h3><p>Visível apenas a jogadores e equipa técnica.</p></div></div>${weightChartHtml(p.id)}</div><div style="height:15px"></div><div class="card"><div class="card-head"><div><h3>Multas</h3><p>Histórico interno da época.</p></div><strong>${money(pending)} pendente</strong></div>${fines.length?`<div class="table-wrap"><table><thead><tr><th>Data</th><th>Motivo</th><th>Valor</th><th>Estado</th></tr></thead><tbody>${fines.map(f=>`<tr><td>${fmtDate(f.date)}</td><td>${esc(f.reason)}</td><td>${money(f.amount)}</td><td>${pill(fineStatusLabel(fineStatus(f)),fineStatusPill(fineStatus(f)))}</td></tr>`).join('')}</tbody></table></div>`:empty('Sem multas registadas')}</div>`:''}`;
  $('#backSquad').onclick=()=>showView('squad');$('#editProfilePlayer')&&($('#editProfilePlayer').onclick=()=>openPlayer(p.id));$$('[data-recent-game]').forEach(b=>b.onclick=()=>{sessionStorage.setItem('mcGame',b.dataset.recentGame);showView('matchcenter')});
 }
 
