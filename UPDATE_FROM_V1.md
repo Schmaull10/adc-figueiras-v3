@@ -13,3 +13,6 @@ Quando decidirmos fazer o update definitivo:
 7. Só depois usar a V2 como principal.
 
 Se a migração automática não encontrar dados, o backup JSON permite recuperar a informação manualmente.
+
+## V3.4
+O Match Center passa a usar as tabelas `match_players` e `match_events` do Supabase. Não é necessário executar SQL adicional se os Blocos 1–7 já foram concluídos.

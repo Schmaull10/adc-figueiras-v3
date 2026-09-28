@@ -1,14 +1,17 @@
-# ADC Figueiras V3.3 — Calendário e resultados Supabase
+# ADC Figueiras V3.4
 
-Esta build mantém o login real e o plantel online da V3.2 e acrescenta a migração do calendário, jogos e resultados da época ativa para a tabela `matches` do Supabase.
+Versão de desenvolvimento ligada ao Supabase.
 
-## Nesta fase ficam online
+Nesta fase já estão online:
 - autenticação e roles;
-- época, competições e equipas;
-- plantel e disponibilidade;
-- calendário completo do campeonato;
-- resultados do campeonato;
-- jogos do ADC Figueiras, incluindo Taça/amigáveis já criados;
-- alterações de resultado, data, hora, ronda/jornada e local.
+- épocas, competições e equipas;
+- plantel;
+- calendário e resultados;
+- Match Center: convocados, utilizados, 5 inicial, capitão, golos, assistências e cartões.
 
-Convocatórias, 5 inicial, capitão e acontecimentos do Match Center continuam locais nesta fase e serão migrados no passo seguinte.
+Continuam por migrar integralmente para o backend:
+- treinos, presenças e pesagens;
+- multas;
+- notificações.
+
+A V2.10 estável deve continuar separada deste repositório de desenvolvimento.
