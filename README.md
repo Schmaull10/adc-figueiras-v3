@@ -1,12 +1,7 @@
-# ADC Figueiras V3.6
+# ADC Figueiras V3.7
 
-Esta build liga ao Supabase:
-- autenticação e roles;
-- referências, plantel, calendário/resultados;
-- Match Center;
-- treinos, presenças e pesagens;
-- multas e regras de multas.
+Contas reais, convites, roles e ligação conta ↔ jogador no Supabase.
 
-Antes de publicar esta versão, corre `V3_6_SQL_MULTAS_ONLINE.sql` no SQL Editor do Supabase.
+Antes de publicar, executa no SQL Editor o bloco V3.7 fornecido diretamente na conversa.
 
-A V2.10 estável continua separada.
+Não é necessário carregar ficheiros `.sql` para o GitHub.

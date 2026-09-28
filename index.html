@@ -20,15 +20,23 @@
       <div class="auth-logo"><img src="assets/adc-figueiras-emblema.png" alt="ADC Figueiras" /></div>
       <div class="auth-copy">
         <span class="auth-kicker">ADC FIGUEIRAS · V3</span>
-        <h1>Entrar</h1>
-        <p>V3 em migração para o Supabase. Autenticação, referências e plantel já podem ficar online; jogos e treinos serão migrados nas etapas seguintes.</p>
+        <h1 id="authTitle">Entrar</h1>
+        <p id="authDescription">Entra com a tua conta ADC Figueiras.</p>
       </div>
       <form id="loginForm" class="auth-form">
         <label>Email<input id="loginEmail" name="email" type="email" autocomplete="email" required placeholder="teu@email.pt" /></label>
         <label>Palavra-passe<input id="loginPassword" name="password" type="password" autocomplete="current-password" required placeholder="••••••••" /></label>
         <button class="btn auth-submit" id="loginBtn" type="submit">Entrar</button>
-        <div class="auth-message" id="authMessage" aria-live="polite"></div>
+        <button class="btn secondary auth-alt" id="showSignupBtn" type="button">Criar conta com convite</button>
       </form>
+      <form id="signupForm" class="auth-form hidden">
+        <label>Email convidado<input name="email" type="email" autocomplete="email" required placeholder="teu@email.pt" /></label>
+        <label>Palavra-passe<input name="password" type="password" autocomplete="new-password" required placeholder="Mínimo 6 caracteres" /></label>
+        <label>Confirmar palavra-passe<input name="password2" type="password" autocomplete="new-password" required placeholder="Repete a palavra-passe" /></label>
+        <button class="btn auth-submit" id="signupBtn" type="submit">Criar conta</button>
+        <button class="btn secondary auth-alt" id="backToLoginBtn" type="button">Voltar a Entrar</button>
+      </form>
+      <div class="auth-message" id="authMessage" aria-live="polite"></div>
       <div class="auth-foot">Projeto de testes V3 · A V2.10 está separada e não é alterada.</div>
     </div>
   </section>
@@ -37,7 +45,7 @@
     <aside class="sidebar" id="sidebar">
       <div class="brand">
         <div class="brand-mark"><img src="assets/adc-figueiras-emblema.png" alt="Emblema ADC Figueiras" /></div>
-        <div><strong>ADC Figueiras</strong><span>Clube · V3.3</span></div>
+        <div><strong>ADC Figueiras</strong><span>Clube · V3.7</span></div>
       </div>
 
       <div class="season-switch">
