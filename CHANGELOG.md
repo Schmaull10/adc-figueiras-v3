@@ -1,10 +1,9 @@
 # Changelog
 
-## V3.7 — Pessoas, contas e permissões online
-- Pessoas e acessos passam a ser lidos do Supabase.
-- Admin pode criar convites por email e atribuir múltiplas funções.
-- Ligação entre conta e jogador do plantel.
-- Novo fluxo “Criar conta com convite” no ecrã de login.
-- Admin pode editar roles, número de sócio, jogador associado e ativar/desativar contas.
-- Proteção contra remoção/desativação do último Admin.
-- O utilizador autenticado passa a usar a sua ligação real ao jogador nos dashboards privados.
+## V3.8 — Registo livre e área pública
+- Qualquer pessoa pode criar conta sem convite.
+- Convites passam a ser pré-atribuições de funções internas.
+- Registados sem funções usam a vista pública.
+- Número de sócio opcional no registo fica pendente de validação.
+- Adicionada opção Continuar sem conta.
+- Admin pode validar sócio atribuindo a função Sócio.

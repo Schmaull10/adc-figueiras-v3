@@ -27,10 +27,13 @@
         <label>Email<input id="loginEmail" name="email" type="email" autocomplete="email" required placeholder="teu@email.pt" /></label>
         <label>Palavra-passe<input id="loginPassword" name="password" type="password" autocomplete="current-password" required placeholder="••••••••" /></label>
         <button class="btn auth-submit" id="loginBtn" type="submit">Entrar</button>
-        <button class="btn secondary auth-alt" id="showSignupBtn" type="button">Criar conta com convite</button>
+        <button class="btn secondary auth-alt" id="showSignupBtn" type="button">Criar conta</button>
+        <button class="btn secondary auth-alt" id="continuePublicBtn" type="button">Continuar sem conta</button>
       </form>
       <form id="signupForm" class="auth-form hidden">
-        <label>Email convidado<input name="email" type="email" autocomplete="email" required placeholder="teu@email.pt" /></label>
+        <label>Nome<input name="name" type="text" autocomplete="name" required placeholder="O teu nome" /></label>
+        <label>Email<input name="email" type="email" autocomplete="email" required placeholder="teu@email.pt" /></label>
+        <label>N.º de sócio <span class="muted">(opcional)</span><input name="memberNumber" type="text" autocomplete="off" placeholder="Se fores sócio" /></label>
         <label>Palavra-passe<input name="password" type="password" autocomplete="new-password" required placeholder="Mínimo 6 caracteres" /></label>
         <label>Confirmar palavra-passe<input name="password2" type="password" autocomplete="new-password" required placeholder="Repete a palavra-passe" /></label>
         <button class="btn auth-submit" id="signupBtn" type="submit">Criar conta</button>
@@ -45,7 +48,7 @@
     <aside class="sidebar" id="sidebar">
       <div class="brand">
         <div class="brand-mark"><img src="assets/adc-figueiras-emblema.png" alt="Emblema ADC Figueiras" /></div>
-        <div><strong>ADC Figueiras</strong><span>Clube · V3.7</span></div>
+        <div><strong>ADC Figueiras</strong><span>Clube · V3.8</span></div>
       </div>
 
       <div class="season-switch">
