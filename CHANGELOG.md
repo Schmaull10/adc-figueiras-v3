@@ -1,3 +1,11 @@
+# V3.3.2 hotfix
+
+- Corrigida a migração inicial que podia devolver **0 jogos** quando o Supabase ainda estava vazio.
+- Uma leitura vazia da tabela `matches` já não apaga o calendário local antes da migração.
+- A criação do calendário online usa agora o calendário canónico incluído na app, fundido com resultados/edições locais.
+- Adicionada validação para impedir uma migração silenciosa com 0 jogos.
+- Atualizada a versão do cache do service worker.
+
 # V3.3.1 hotfix
 
 - Corrigido o botão **Criar calendário online**, que não tinha o evento de clique associado.

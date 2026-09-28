@@ -4,7 +4,7 @@ const V2_KEY='adc-figueiras-team-manager-v3-dev';
 const V1_KEY='adc-figueiras-team-manager-v3-legacy-unused';
 const MODE_KEY='adc-figueiras-v3-preview-mode';
 const AUTO_BACKUP_KEY='adc-figueiras-team-manager-v3-autobackup';
-const APP_VERSION='3.3.1-matches-hotfix';
+const APP_VERSION='3.3.2-calendar-seed-fix';
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const pad=n=>String(n).padStart(2,'0');
@@ -305,6 +305,9 @@ function backendMatchToResult(m){
 function applyBackendMatchesToState(){
  if(!backendMatchesLoaded||typeof state==='undefined')return;
  const season=backendActiveSeason();if(!season)return;
+ // Before the first migration the Supabase table is empty. In that case,
+ // keep the bundled/local calendar intact so it can be uploaded.
+ if(!(backendMatches.rows||[]).length)return;
  const localSeason=state.seasons.find(s=>s.backendId===season.id||s.label===season.label);const localSeasonId=localSeason?.id||state.settings.activeSeasonId;
  const comps=new Map((backendReference.competitions||[]).map(c=>[c.id,c]));const club=backendClubTeam();
  const leagueRows=backendMatches.rows.filter(m=>comps.get(m.competition_id)?.competition_type==='league').map(backendMatchToResult);
@@ -340,7 +343,12 @@ async function createInitialBackendMatches(){
  if((existing.data||[]).length){await loadBackendMatchesData();return {created:false,count:(existing.data||[]).length}}
  syncClubGamesToFixtures();
  const payload=[];
- for(const r of seasonCompetitionFixtures()){
+ // Build the initial migration from the canonical bundled calendar, merged
+ // with any local scores/edits. This prevents an empty backend read from
+ // accidentally leaving us with 0 fixtures to upload.
+ const localFixtures=mergeFixtures(state.competitionResults||[]);
+ const fixturesToUpload=localFixtures.length?localFixtures:seedFixtures.map(f=>({...f}));
+ for(const r of fixturesToUpload){
   const home=await ensureBackendTeam(r.home),away=await ensureBackendTeam(r.away);const hs=r.homeScore===''?null:Number(r.homeScore),as=r.awayScore===''?null:Number(r.awayScore);
   payload.push({competition_id:league.id,home_team_id:home.id,away_team_id:away.id,matchday:Number(r.round)||null,round_label:null,kickoff_at:portugalKickoffIso(r.date,r.time||'00:00'),venue:r.venue||null,status:hs!==null&&as!==null?'completed':'scheduled',home_score:hs,away_score:as,halftime_home_score:null,halftime_away_score:null,counts_for_standings:true,official_fixture:r.fixture!==false,source:r.fixture!==false?'official_calendar':'manual'});
  }
@@ -349,6 +357,7 @@ async function createInitialBackendMatches(){
   const fg=g.homeScore===''?null:Number(g.homeScore),og=g.awayScore===''?null:Number(g.awayScore),fgh=g.halfTimeHomeScore===''||g.halfTimeHomeScore==null?null:Number(g.halfTimeHomeScore),ogh=g.halfTimeAwayScore===''||g.halfTimeAwayScore==null?null:Number(g.halfTimeAwayScore);
   payload.push({competition_id:comp.id,home_team_id:home.id,away_team_id:away.id,matchday:null,round_label:g.round||null,kickoff_at:portugalKickoffIso(g.date,g.time||'00:00'),venue:g.venue||null,status:fg!==null&&og!==null?'completed':'scheduled',home_score:g.homeAway==='Casa'?fg:og,away_score:g.homeAway==='Casa'?og:fg,halftime_home_score:g.homeAway==='Casa'?fgh:ogh,halftime_away_score:g.homeAway==='Casa'?ogh:fgh,counts_for_standings:false,official_fixture:false,source:'manual'});
  }
+ if(!payload.length)throw new Error('Não foram encontrados jogos locais para migrar. Atualiza a página e tenta novamente.');
  const ins=await supabaseClient.from('matches').insert(payload).select('*');if(ins.error)throw ins.error;
  await loadBackendReferenceData(backendReference.settings);await loadBackendMatchesData();return {created:true,count:(ins.data||[]).length};
 }
