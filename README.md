@@ -1,8 +1,3 @@
-# ADC Figueiras V3.10.2
+ADC Figueiras V3.11 — Auto Push
 
-Esta build acrescenta onboarding de notificações push no primeiro acesso autenticado de cada utilizador/dispositivo. Não requer SQL novo nem alterações à Edge Function `push-test`.
-
-# ADC Figueiras V3.10.1
-
-Correção do mecanismo de atualização da PWA e manutenção do piloto Web Push.
-Não requer SQL adicional nem alterações à Edge Function `push-test`.
+Frontend da PWA. Requer a migração SQL V3.11, a Edge Function send-push-queue e o Cron configurado no Supabase conforme as instruções fornecidas no chat.
