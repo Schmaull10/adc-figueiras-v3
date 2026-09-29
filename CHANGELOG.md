@@ -1,3 +1,11 @@
+# V3.10.2 — Push onboarding
+
+- Primeiro login/abertura autenticada num dispositivo sem push ativo mostra um pedido interno para ativar notificações.
+- O pedido real do sistema operativo só é feito depois de o utilizador tocar em **Ativar notificações**, respeitando as regras dos browsers.
+- **Agora não** não bloqueia nada: a ativação continua disponível na área Notificações.
+- O aviso é guardado por utilizador e dispositivo para não aparecer repetidamente.
+- Cache PWA atualizado.
+
 # V3.10.1 — Correção de atualização da PWA
 
 - Corrige o cabeçalho que ainda mostrava V3.9.1.

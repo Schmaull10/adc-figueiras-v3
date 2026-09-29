@@ -4,7 +4,7 @@ const V2_KEY='adc-figueiras-team-manager-v3-dev';
 const V1_KEY='adc-figueiras-team-manager-v3-legacy-unused';
 const MODE_KEY='adc-figueiras-v3-preview-mode';
 const AUTO_BACKUP_KEY='adc-figueiras-team-manager-v3-autobackup';
-const APP_VERSION='3.10.1-pwa-update-fix';
+const APP_VERSION='3.10.2-push-onboarding';
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const pad=n=>String(n).padStart(2,'0');
@@ -50,6 +50,7 @@ let backendFinesLoaded=false;
 let backendNotifications={rows:[],recipients:[],preferences:null};
 let backendNotificationsLoaded=false;
 let backendPushDevice={supported:false,permission:'default',subscribed:false,endpoint:'',row:null};
+const PUSH_ONBOARDING_KEY_PREFIX='adc-figueiras-push-onboarding-v1:';
 
 const roleRank=['public','member','player','captain','staff','admin'];
 function highestBackendRole(roles=[]){
@@ -166,6 +167,39 @@ async function deactivatePushOnDevice(){
 async function sendPushTest(){
  if(!backendPushDevice.subscribed)throw new Error('Ativa primeiro o push neste dispositivo.');
  const {data,error}=await supabaseClient.functions.invoke('push-test',{body:{}});if(error)throw error;if(!data?.sent)throw new Error(data?.message||'O servidor não confirmou o envio do push.');return data;
+}
+function pushOnboardingKey(){return `${PUSH_ONBOARDING_KEY_PREFIX}${backendSession?.user?.id||'guest'}`}
+function pushOnboardingSeen(){try{return !!localStorage.getItem(pushOnboardingKey())}catch{return false}}
+function markPushOnboardingSeen(value='seen'){try{localStorage.setItem(pushOnboardingKey(),value)}catch{}}
+function shouldOfferPushOnboarding(){
+ return !!(backendSession?.user?.id&&!guestMode&&backendPushDevice.supported&&!backendPushDevice.subscribed&&backendPushDevice.permission!=='denied'&&!pushOnboardingSeen());
+}
+function openPushOnboarding(){
+ if(!shouldOfferPushOnboarding())return;
+ openModal('Ativar notificações?','Recebe os avisos importantes do ADC Figueiras mesmo quando a app não está aberta.',`<div class="info-strip">Podemos avisar-te de convocatórias, treinos, DIA DE JOGO, resultados e outras mensagens do clube.</div><div style="height:12px"></div><div class="note">O teu dispositivo vai pedir autorização para mostrar notificações. Podes alterar esta opção mais tarde em <strong>Notificações</strong>.</div><div class="form-actions"><button type="button" class="btn secondary" id="pushOnboardingLater">Agora não</button><button type="button" class="btn" id="pushOnboardingEnable">Ativar notificações</button></div>`);
+ const later=$('#pushOnboardingLater'),enable=$('#pushOnboardingEnable');
+ later.onclick=()=>{markPushOnboardingSeen('later');closeModal()};
+ enable.onclick=async()=>{
+  enable.disabled=true;enable.textContent='A ativar…';
+  try{
+   await activatePushOnDevice();
+   markPushOnboardingSeen('enabled');
+   closeModal();renderChrome();toast('Notificações push ativadas neste dispositivo.');
+  }catch(err){
+   console.error(err);markPushOnboardingSeen('attempted');
+   alert(`Não foi possível ativar as notificações.\n\n${err?.message||'Erro desconhecido'}`);
+   enable.disabled=false;enable.textContent='Ativar notificações';
+  }
+ };
+}
+function queuePushOnboarding(){
+ if(!shouldOfferPushOnboarding())return;
+ setTimeout(()=>{
+  if(!shouldOfferPushOnboarding())return;
+  const backdrop=$('#modalBackdrop');
+  if(backdrop&&!backdrop.classList.contains('hidden'))return;
+  openPushOnboarding();
+ },650);
 }
 
 const NOTIFICATION_PREF_DEFAULTS={
@@ -1025,7 +1059,7 @@ async function signUpV3(name,email,memberNumber,password,password2){
    options:{data:{display_name:String(name||'').trim(),member_number:cleanMember||null}}
   });
   if(error)throw error;
-  if(data.session){await loadIdentityWithOneRetry(data.session);showAuthenticatedApp();renderChrome();showView('dashboard');return}
+  if(data.session){await loadIdentityWithOneRetry(data.session);showAuthenticatedApp();renderChrome();showView('dashboard');queuePushOnboarding();return}
   showSignupMode(false);const em=$('#loginEmail');if(em)em.value=email;
   setAuthMessage(cleanMember?'Conta criada. Confirma o email que recebeste. O teu número de sócio ficará pendente de validação pelo clube.':'Conta criada. Confirma o email que recebeste e depois inicia sessão.','ok');
  }catch(err){console.error(err);setAuthMessage(err?.message||'Não foi possível criar a conta.','error')}finally{if(btn){btn.disabled=false;btn.textContent='Criar conta'}}
@@ -1076,7 +1110,7 @@ async function signInV3(email,password){
   if(error)throw error;
   await loadIdentityWithOneRetry(data.session);
   showAuthenticatedApp();
-  renderChrome();showView('dashboard');
+  renderChrome();showView('dashboard');queuePushOnboarding();
  }catch(err){
   console.error(err);setAuthMessage(err?.message||'Não foi possível iniciar sessão.','error');
   try{await supabaseClient.auth.signOut()}catch{}
@@ -1098,7 +1132,7 @@ async function bootV3(){
  $('#logoutBtn').onclick=()=>guestMode?leavePublicMode():signOutV3();
  try{
   const {data,error}=await supabaseClient.auth.getSession();if(error)throw error;
-  if(data.session){await loadIdentityWithOneRetry(data.session);showAuthenticatedApp();renderChrome();showView('dashboard')}
+  if(data.session){await loadIdentityWithOneRetry(data.session);showAuthenticatedApp();renderChrome();showView('dashboard');queuePushOnboarding()}
   else showAuthGate();
  }catch(err){console.error(err);setAuthMessage(`Ligação ao backend falhou: ${err?.message||'erro desconhecido'}`,'error');showAuthGate()}
 }
