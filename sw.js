@@ -1,4 +1,4 @@
-const CACHE='adc-figueiras-v3-notifications-online-1';
+const CACHE='adc-figueiras-v3-notification-scheduling-1';
 const ASSETS=[
   './','./index.html','./styles.css','./app.js','./manifest.webmanifest',
   './assets/adc-figueiras-emblema.png','./assets/adc-figueiras-logo-normal.png','./assets/icon-192.png','./assets/icon-512.png','./assets/apple-touch-icon.png'

@@ -1,7 +1,5 @@
-# ADC Figueiras V3.9
+# ADC Figueiras V3.9.1
 
-Versão de desenvolvimento com sistema interno de notificações ligado ao Supabase.
+Atualização da V3 com horários padrão e agendamento manual de notificações.
 
-Antes de publicar esta versão, executa no Supabase o bloco SQL V3.9 fornecido diretamente na conversa.
-
-Não é necessário enviar ficheiros SQL para o GitHub.
+Antes de publicar esta build, executar no Supabase o SQL fornecido na conversa para criar `notification_schedule_settings`.
