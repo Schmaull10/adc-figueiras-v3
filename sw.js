@@ -1,4 +1,4 @@
-const CACHE='adc-figueiras-v3-notification-scheduling-1';
+const CACHE='adc-figueiras-v3-push-pilot-1';
 const ASSETS=[
   './','./index.html','./styles.css','./app.js','./manifest.webmanifest',
   './assets/adc-figueiras-emblema.png','./assets/adc-figueiras-logo-normal.png','./assets/icon-192.png','./assets/icon-512.png','./assets/apple-touch-icon.png'
@@ -6,3 +6,29 @@ const ASSETS=[
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>event.respondWith(caches.match(event.request).then(cached=>cached||fetch(event.request))));
+
+
+self.addEventListener('push',event=>{
+ let data={};
+ try{data=event.data?event.data.json():{}}catch{data={body:event.data?event.data.text():''}}
+ const title=data.title||'ADC Figueiras';
+ const options={
+  body:data.body||'Tens uma nova notificação.',
+  icon:'./assets/icon-192.png',
+  badge:'./assets/icon-192.png',
+  tag:data.tag||undefined,
+  renotify:false,
+  data:{url:data.url||'./'}
+ };
+ event.waitUntil(self.registration.showNotification(title,options));
+});
+
+self.addEventListener('notificationclick',event=>{
+ event.notification.close();
+ const target=new URL(event.notification.data?.url||'./',self.registration.scope).href;
+ event.waitUntil((async()=>{
+  const windows=await clients.matchAll({type:'window',includeUncontrolled:true});
+  for(const client of windows){if('focus'in client){await client.focus();if('navigate'in client)await client.navigate(target);return}}
+  if(clients.openWindow)return clients.openWindow(target);
+ })());
+});

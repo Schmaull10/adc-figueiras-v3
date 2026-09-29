@@ -4,7 +4,7 @@ const V2_KEY='adc-figueiras-team-manager-v3-dev';
 const V1_KEY='adc-figueiras-team-manager-v3-legacy-unused';
 const MODE_KEY='adc-figueiras-v3-preview-mode';
 const AUTO_BACKUP_KEY='adc-figueiras-team-manager-v3-autobackup';
-const APP_VERSION='3.9.1-notification-scheduling';
+const APP_VERSION='3.10-push-pilot';
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const pad=n=>String(n).padStart(2,'0');
@@ -24,6 +24,8 @@ const addDays=(iso,days)=>{const d=new Date(`${iso}T12:00:00`);d.setDate(d.getDa
 // Real data protection is enforced by the Supabase RLS policies created in Blocks 1–7.
 const SUPABASE_URL='https://kfihltycbnambszmefqa.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_dF_bY-SgTQi3pWjIWt1ocA_unkhmtdm';
+// VAPID public key: safe to expose in the browser. The matching private key lives only in Supabase Edge Function Secrets.
+const VAPID_PUBLIC_KEY='BFjsR0mq-V8eBLzIwalD0AbbFpCcl3pyUcqC09NcNstgSTG-BrAtw4avRmIoK_m7vlRzvYPXUHjPnJuIW2vQ-gY';
 let supabaseClient=null;
 let backendSession=null;
 let backendProfile=null;
@@ -47,6 +49,7 @@ let backendFines={seasonId:'',rules:[],fines:[]};
 let backendFinesLoaded=false;
 let backendNotifications={rows:[],recipients:[],preferences:null};
 let backendNotificationsLoaded=false;
+let backendPushDevice={supported:false,permission:'default',subscribed:false,endpoint:'',row:null};
 
 const roleRank=['public','member','player','captain','staff','admin'];
 function highestBackendRole(roles=[]){
@@ -119,6 +122,51 @@ async function cancelBackendInvitation(id){
  const {error}=await supabaseClient.rpc('admin_cancel_invitation',{p_invitation_id:id});if(error)throw error;await loadBackendPeopleData();
 }
 
+
+
+function urlBase64ToUint8Array(base64String){
+ const padding='='.repeat((4-base64String.length%4)%4);const base64=(base64String+padding).replace(/-/g,'+').replace(/_/g,'/');const raw=atob(base64);return Uint8Array.from([...raw].map(c=>c.charCodeAt(0)));
+}
+function pushSupported(){return !!(backendSession?.user?.id&&'serviceWorker'in navigator&&'PushManager'in window&&'Notification'in window&&location.protocol!=='file:')}
+async function loadPushDeviceStatus(){
+ const supported=pushSupported();backendPushDevice={supported,permission:('Notification'in window?Notification.permission:'unsupported'),subscribed:false,endpoint:'',row:null};
+ if(!supported)return backendPushDevice;
+ try{
+  const reg=await navigator.serviceWorker.ready;const sub=await reg.pushManager.getSubscription();
+  if(!sub)return backendPushDevice;
+  const rowRes=await supabaseClient.from('push_subscriptions').select('id,user_id,endpoint,active,created_at,updated_at,last_seen_at').eq('endpoint',sub.endpoint).maybeSingle();
+  if(rowRes.error)throw rowRes.error;
+  // If the browser still has a valid subscription but the DB row disappeared, recreate it for this user.
+  let row=rowRes.data||null;
+  if(!row){row=await savePushSubscription(sub)}
+  backendPushDevice={supported:true,permission:Notification.permission,subscribed:row?.active!==false,endpoint:sub.endpoint,row};
+ }catch(err){console.warn('Não foi possível verificar o push neste dispositivo.',err)}
+ return backendPushDevice;
+}
+async function savePushSubscription(sub){
+ if(!backendSession?.user?.id)throw new Error('Inicia sessão para ativar notificações push.');
+ const json=sub.toJSON();const payload={user_id:backendSession.user.id,endpoint:sub.endpoint,p256dh:json.keys?.p256dh||'',auth:json.keys?.auth||'',user_agent:navigator.userAgent||'',active:true,last_seen_at:new Date().toISOString(),updated_at:new Date().toISOString()};
+ const res=await supabaseClient.from('push_subscriptions').upsert(payload,{onConflict:'endpoint'}).select('*').single();if(res.error)throw res.error;return res.data;
+}
+async function activatePushOnDevice(){
+ if(!backendSession?.user?.id)throw new Error('Inicia sessão primeiro.');
+ if(!pushSupported())throw new Error('Este browser/dispositivo não suporta Web Push nesta configuração.');
+ if(Notification.permission==='denied')throw new Error('As notificações estão bloqueadas nas definições do browser. É preciso voltar a permiti-las para este site.');
+ const permission=await Notification.requestPermission();if(permission!=='granted')throw new Error('Permissão de notificações não concedida.');
+ const reg=await navigator.serviceWorker.ready;let sub=await reg.pushManager.getSubscription();
+ if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlBase64ToUint8Array(VAPID_PUBLIC_KEY)});
+ const row=await savePushSubscription(sub);backendPushDevice={supported:true,permission:'granted',subscribed:true,endpoint:sub.endpoint,row};return row;
+}
+async function deactivatePushOnDevice(){
+ if(!pushSupported())return;
+ const reg=await navigator.serviceWorker.ready;const sub=await reg.pushManager.getSubscription();
+ if(sub){const del=await supabaseClient.from('push_subscriptions').delete().eq('endpoint',sub.endpoint);if(del.error)throw del.error;await sub.unsubscribe()}
+ backendPushDevice={supported:true,permission:Notification.permission,subscribed:false,endpoint:'',row:null};
+}
+async function sendPushTest(){
+ if(!backendPushDevice.subscribed)throw new Error('Ativa primeiro o push neste dispositivo.');
+ const {data,error}=await supabaseClient.functions.invoke('push-test',{body:{}});if(error)throw error;if(!data?.sent)throw new Error(data?.message||'O servidor não confirmou o envio do push.');return data;
+}
 
 const NOTIFICATION_PREF_DEFAULTS={
  callup_enabled:true,
@@ -941,6 +989,7 @@ async function loadBackendIdentity(session){
  if(backendRoles.includes('admin'))await loadBackendPeopleData();
  await loadBackendNotificationSchedule();
  await loadBackendNotifications();
+ await loadPushDeviceStatus();
  backendConnected=backendReferenceLoaded&&!!settingsRes.data;
  configurePreviewSelector();
  mode=highestBackendRole(backendRoles);
@@ -991,7 +1040,7 @@ async function loadPublicBackend(){
  await loadBackendMatchCenterData();
  backendTraining={seasonId:'',trainings:[],attendance:[],weighIns:[]};backendTrainingLoaded=false;
  backendFines={seasonId:'',rules:[],fines:[]};backendFinesLoaded=false;
- backendNotifications={rows:[],recipients:[],preferences:null};backendNotificationsLoaded=false;backendNotificationSchedule={...NOTIFICATION_SCHEDULE_DEFAULTS};backendNotificationScheduleLoaded=false;state.notifications=[];
+ backendNotifications={rows:[],recipients:[],preferences:null};backendNotificationsLoaded=false;backendNotificationSchedule={...NOTIFICATION_SCHEDULE_DEFAULTS};backendNotificationScheduleLoaded=false;backendPushDevice={supported:false,permission:'default',subscribed:false,endpoint:'',row:null};state.notifications=[];
  backendConnected=backendReferenceLoaded&&!!settingsRes.data;
  mode='public';configurePreviewSelector();localStorage.setItem(MODE_KEY,'public');
 }
@@ -1017,7 +1066,7 @@ async function continueAsPublic(){
  }
 }
 function leavePublicMode(){
- guestMode=false;backendSession=null;backendProfile=null;backendRoles=[];backendPlayerAccount=null;backendNotifications={rows:[],recipients:[],preferences:null};backendNotificationsLoaded=false;backendNotificationSchedule={...NOTIFICATION_SCHEDULE_DEFAULTS};backendNotificationScheduleLoaded=false;state.notifications=[];backendConnected=false;mode='public';
+ guestMode=false;backendSession=null;backendProfile=null;backendRoles=[];backendPlayerAccount=null;backendNotifications={rows:[],recipients:[],preferences:null};backendNotificationsLoaded=false;backendNotificationSchedule={...NOTIFICATION_SCHEDULE_DEFAULTS};backendNotificationScheduleLoaded=false;backendPushDevice={supported:false,permission:'default',subscribed:false,endpoint:'',row:null};state.notifications=[];backendConnected=false;mode='public';
  showAuthGate();showSignupMode(false);setAuthMessage('');
 }
 async function signInV3(email,password){
@@ -1035,7 +1084,7 @@ async function signInV3(email,password){
 }
 async function signOutV3(){
  try{await supabaseClient?.auth.signOut()}catch(e){console.warn(e)}
- guestMode=false;backendSession=null;backendProfile=null;backendRoles=[];backendPlayerAccount=null;backendPeople={profiles:[],roles:[],links:[],invitations:[]};backendPeopleLoaded=false;backendNotifications={rows:[],recipients:[],preferences:null};backendNotificationsLoaded=false;backendNotificationSchedule={...NOTIFICATION_SCHEDULE_DEFAULTS};backendNotificationScheduleLoaded=false;state.notifications=[];backendConnected=false;mode='public';
+ guestMode=false;backendSession=null;backendProfile=null;backendRoles=[];backendPlayerAccount=null;backendPeople={profiles:[],roles:[],links:[],invitations:[]};backendPeopleLoaded=false;backendNotifications={rows:[],recipients:[],preferences:null};backendNotificationsLoaded=false;backendNotificationSchedule={...NOTIFICATION_SCHEDULE_DEFAULTS};backendNotificationScheduleLoaded=false;backendPushDevice={supported:false,permission:'default',subscribed:false,endpoint:'',row:null};state.notifications=[];backendConnected=false;mode='public';
  showAuthGate();setAuthMessage('Sessão terminada.','ok');
  const pw=$('#loginPassword');if(pw)pw.value='';
 }
@@ -1578,6 +1627,9 @@ function renderNotifications(){
  if(guestMode){$('#view-notifications').innerHTML=empty('Inicia sessão','As notificações pessoais estão disponíveis para contas registadas.');return}
  const rows=state.notifications.filter(notificationVisible).slice().reverse();
  const prefs=currentNotificationPreferences();
+ const pushLabel=!backendPushDevice.supported?'Não suportado':backendPushDevice.subscribed?'Ativo neste dispositivo':backendPushDevice.permission==='denied'?'Bloqueado':'Desativado';
+ const pushType=backendPushDevice.subscribed?'green':backendPushDevice.permission==='denied'?'red':'amber';
+ const pushCard=backendSession?`<div class="card"><div class="card-head"><div><h3>Push neste dispositivo</h3><p>Recebe avisos mesmo quando a app não está aberta.</p></div>${pill(pushLabel,pushType)}</div><div class="note">A subscrição pertence a este browser/dispositivo. Podes ativar a mesma conta em vários dispositivos.</div><div class="form-actions">${backendPushDevice.subscribed?'<button class="btn" id="testPush">Enviar push de teste</button><button class="btn secondary" id="disablePush">Desativar neste dispositivo</button>':'<button class="btn" id="enableBrowserNotifications">Ativar push neste dispositivo</button>'}</div></div><div style="height:12px"></div>`:'';
  const prefCard=backendSession?`<div class="card"><div class="card-head"><div><h3>Preferências</h3><p>Escolhe os tipos de aviso que queres receber na tua caixa de notificações.</p></div>${pill('Online','green')}</div><form id="notificationPrefs"><div class="checkboxes notification-pref-grid">${[
   ['callup_enabled','Convocatórias'],
   ['matchday_enabled','DIA DE JOGO!'],
@@ -1586,14 +1638,16 @@ function renderNotifications(){
   ['nutrition_enabled','Plano pré-jogo'],
   ['general_enabled','Mensagens gerais']
  ].map(([k,l])=>`<label class="check-pill"><input type="checkbox" name="${k}" ${prefs[k]!==false?'checked':''}>${l}</label>`).join('')}</div><div class="form-actions"><button class="btn" id="saveNotificationPrefs">Guardar preferências</button></div></form></div><div style="height:12px"></div>`:'';
- $('#view-notifications').innerHTML=`<div class="section-head"><div><h2>Notificações</h2><p>Convocatórias, treinos, dia de jogo, resultados e plano pré-jogo.</p></div><div class="inline-actions"><button class="btn secondary" id="refreshNotifications">Atualizar</button><button class="btn secondary" id="enableBrowserNotifications">Ativar neste dispositivo</button>${canEdit()?'<button class="btn" id="customNotification">＋ Nova</button>':''}</div></div><div class="info-strip">As notificações desta página já ficam guardadas no Supabase e acompanham a tua conta entre dispositivos. O push com a app fechada será ligado na fase seguinte.</div><div style="height:12px"></div>${prefCard}<div class="grid equal2">${rows.length?rows.map(noticeHtml).join(''):empty('Sem notificações','Ainda não tens mensagens disponíveis.')}</div>`;
- $('#enableBrowserNotifications').onclick=requestNotificationPermission;
- $('#refreshNotifications').onclick=async()=>{try{await loadBackendNotifications();renderNotifications();renderChrome();toast('Notificações atualizadas.')}catch(err){console.error(err);alert(`Não foi possível atualizar as notificações.\n\n${err?.message||'Erro desconhecido'}`)}};
+ $('#view-notifications').innerHTML=`<div class="section-head"><div><h2>Notificações</h2><p>Convocatórias, treinos, dia de jogo, resultados e plano pré-jogo.</p></div><div class="inline-actions"><button class="btn secondary" id="refreshNotifications">Atualizar</button>${canEdit()?'<button class="btn" id="customNotification">＋ Nova</button>':''}</div></div><div class="info-strip">As mensagens ficam guardadas no Supabase. Nesta versão podes também ativar Web Push no dispositivo e enviar um push real de teste.</div><div style="height:12px"></div>${pushCard}${prefCard}<div class="grid equal2">${rows.length?rows.map(noticeHtml).join(''):empty('Sem notificações','Ainda não tens mensagens disponíveis.')}</div>`;
+ $('#enableBrowserNotifications')&&($('#enableBrowserNotifications').onclick=async()=>{const b=$('#enableBrowserNotifications');b.disabled=true;b.textContent='A ativar…';try{await activatePushOnDevice();toast('Push ativado neste dispositivo.');renderNotifications()}catch(err){console.error(err);alert(`Não foi possível ativar o push.\n\n${err?.message||'Erro desconhecido'}`);b.disabled=false;b.textContent='Ativar push neste dispositivo'}});
+ $('#testPush')&&($('#testPush').onclick=async()=>{const b=$('#testPush');b.disabled=true;b.textContent='A enviar…';try{const r=await sendPushTest();toast(`Push de teste enviado (${r.sent||0}).`)}catch(err){console.error(err);alert(`Não foi possível enviar o push de teste.\n\n${err?.message||'Erro desconhecido'}`)}finally{b.disabled=false;b.textContent='Enviar push de teste'}});
+ $('#disablePush')&&($('#disablePush').onclick=async()=>{if(!confirm('Desativar notificações push neste dispositivo?'))return;const b=$('#disablePush');b.disabled=true;try{await deactivatePushOnDevice();toast('Push desativado neste dispositivo.');renderNotifications()}catch(err){console.error(err);alert(`Não foi possível desativar o push.\n\n${err?.message||'Erro desconhecido'}`);b.disabled=false}});
+ $('#refreshNotifications').onclick=async()=>{try{await loadBackendNotifications();await loadPushDeviceStatus();renderNotifications();renderChrome();toast('Notificações atualizadas.')}catch(err){console.error(err);alert(`Não foi possível atualizar as notificações.\n\n${err?.message||'Erro desconhecido'}`)}};
  $('#customNotification')&&($('#customNotification').onclick=openCustomNotification);
  $('#notificationPrefs')&&($('#notificationPrefs').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),payload={};Object.keys(NOTIFICATION_PREF_DEFAULTS).forEach(k=>payload[k]=fd.get(k)==='on');const b=$('#saveNotificationPrefs');b.disabled=true;b.textContent='A guardar…';try{await saveBackendNotificationPreferences(payload);toast('Preferências guardadas.');renderNotifications()}catch(err){console.error(err);alert(`Não foi possível guardar as preferências.\n\n${err?.message||'Erro desconhecido'}`);b.disabled=false;b.textContent='Guardar preferências'}});
  markBackendNotificationsRead().catch(console.error);
 }
-async function requestNotificationPermission(){if(!('Notification'in window)){toast('Este browser não suporta notificações.');return}const p=await Notification.requestPermission();if(p==='granted'){new Notification('ADC Figueiras',{body:'Permissão do dispositivo ativada. O push em segundo plano será configurado na próxima fase.',icon:'assets/icon-192.png'});toast('Permissão ativada neste dispositivo.')}else toast('Permissão não concedida.')}
+async function requestNotificationPermission(){return activatePushOnDevice()}
 function openCustomNotification(){
  openModal('Nova notificação','Mensagem manual guardada online.',`<form id="notifForm"><div class="form-grid"><div class="field full"><label>Título</label><input name="title" required></div><div class="field full"><label>Mensagem</label><textarea name="body" required></textarea></div><div class="field"><label>Destinatários</label><select name="audience"><option value="all_registered">Todos os utilizadores registados</option><option value="players_members">Jogadores + Sócios</option><option value="players">Jogadores</option><option value="members">Sócios</option></select></div><div class="field"><label>Quando enviar?</label><select name="timingMode" id="customTimingMode"><option value="now">Enviar agora</option><option value="schedule">Programar</option></select></div><div class="field custom-schedule-field hidden"><label>Data</label><input name="scheduleDate" type="date" value="${nowKey()}"></div><div class="field custom-schedule-field hidden"><label>Hora</label><input name="scheduleTime" type="time"></div></div><div class="form-actions"><button type="button" class="btn secondary" data-close>Cancelar</button><button class="btn" id="sendCustomNotification">Enviar</button></div></form>`);
  const sync=()=>$$('.custom-schedule-field',$('#notifForm')).forEach(el=>el.classList.toggle('hidden',$('#customTimingMode').value!=='schedule'));$('#customTimingMode').onchange=sync;sync();
