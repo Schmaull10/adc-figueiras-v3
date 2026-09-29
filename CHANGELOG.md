@@ -1,6 +1,8 @@
-# V3.10 — Web Push pilot
+# V3.10.1 — Correção de atualização da PWA
 
-- Push subscription per browser/device
-- Subscription stored in Supabase
-- Real push test via Supabase Edge Function
-- Service worker handles push and notification clicks
+- Corrige o cabeçalho que ainda mostrava V3.9.1.
+- HTML, JavaScript, CSS e manifest passam a privilegiar a versão de rede quando há Internet.
+- Mantém fallback offline pela cache.
+- O registo do service worker força verificação de atualização sem usar a cache HTTP.
+- Assets principais usam cache-busting para destravar instalações Android presas em versões antigas.
+- Mantém o Web Push pilot da V3.10.

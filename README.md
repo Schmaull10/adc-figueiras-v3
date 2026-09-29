@@ -1,5 +1,4 @@
-# ADC Figueiras V3.9.1
+# ADC Figueiras V3.10.1
 
-Atualização da V3 com horários padrão e agendamento manual de notificações.
-
-Antes de publicar esta build, executar no Supabase o SQL fornecido na conversa para criar `notification_schedule_settings`.
+Correção do mecanismo de atualização da PWA e manutenção do piloto Web Push.
+Não requer SQL adicional nem alterações à Edge Function `push-test`.

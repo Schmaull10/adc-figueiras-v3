@@ -4,7 +4,7 @@ const V2_KEY='adc-figueiras-team-manager-v3-dev';
 const V1_KEY='adc-figueiras-team-manager-v3-legacy-unused';
 const MODE_KEY='adc-figueiras-v3-preview-mode';
 const AUTO_BACKUP_KEY='adc-figueiras-team-manager-v3-autobackup';
-const APP_VERSION='3.10-push-pilot';
+const APP_VERSION='3.10.1-pwa-update-fix';
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const pad=n=>String(n).padStart(2,'0');
@@ -1856,6 +1856,10 @@ function closeModal(){$('#modalBackdrop').classList.add('hidden')}
 document.addEventListener('click',e=>{const link=e.target.closest('[data-team-link]');if(link){e.preventDefault();e.stopPropagation();openTeamPage(link.dataset.teamLink)}});
 $('#menuBtn').onclick=()=>$('#sidebar').classList.toggle('open');$('#closeModal').onclick=closeModal;$('#modalBackdrop').onclick=e=>{if(e.target===$('#modalBackdrop'))closeModal()};$('#previewMode').onchange=e=>{mode=e.target.value;localStorage.setItem(MODE_KEY,mode);if(!can(currentView))currentView='dashboard';renderChrome();showView(currentView)};$('#seasonSelect').onchange=e=>{state.settings.activeSeasonId=e.target.value;saveState();showView('dashboard')};$('#notificationBell').onclick=()=>showView('notifications');$('#importInput').onchange=e=>{const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=()=>{try{const data=JSON.parse(r.result);if(!data.schemaVersion)throw new Error('Formato inválido');state=normalizeState(data);saveState('Backup importado.')}catch(err){alert('Não foi possível importar este ficheiro.')}};r.readAsText(file);e.target.value=''};
 window.addEventListener('online',()=>$('#offlineBanner').classList.add('hidden'));window.addEventListener('offline',()=>$('#offlineBanner').classList.remove('hidden'));if(!navigator.onLine)$('#offlineBanner').classList.remove('hidden');
-if('serviceWorker'in navigator&&location.protocol!=='file:')navigator.serviceWorker.register('./sw.js').catch(()=>{});
+if('serviceWorker'in navigator&&location.protocol!=='file:'){
+ navigator.serviceWorker.register('./sw.js?v=3.10.1',{updateViaCache:'none'}).then(async reg=>{
+  try{await reg.update()}catch(e){console.warn('Não foi possível verificar atualização da PWA.',e)}
+ }).catch(e=>console.warn('Não foi possível registar o service worker.',e));
+}
 
 bootV3();
