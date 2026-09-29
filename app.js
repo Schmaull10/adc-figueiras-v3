@@ -4,7 +4,7 @@ const V2_KEY='adc-figueiras-team-manager-v3-dev';
 const V1_KEY='adc-figueiras-team-manager-v3-legacy-unused';
 const MODE_KEY='adc-figueiras-v3-preview-mode';
 const AUTO_BACKUP_KEY='adc-figueiras-team-manager-v3-autobackup';
-const APP_VERSION='3.12-password-recovery';
+const APP_VERSION='3.13-account-member-approval';
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const pad=n=>String(n).padStart(2,'0');
@@ -123,6 +123,35 @@ async function saveBackendInvitation(data){
 async function cancelBackendInvitation(id){
  if(!backendRoles.includes('admin'))throw new Error('Só um Admin pode cancelar convites.');
  const {error}=await supabaseClient.rpc('admin_cancel_invitation',{p_invitation_id:id});if(error)throw error;await loadBackendPeopleData();
+}
+async function refreshMyBackendProfile(){
+ if(!backendSession?.user?.id)return null;
+ const {data,error}=await supabaseClient.from('profiles').select('id,display_name,email,member_number,member_status,active').eq('id',backendSession.user.id).maybeSingle();
+ if(error)throw error;
+ backendProfile=data||backendProfile;
+ return backendProfile;
+}
+async function updateMyProfileName(name){
+ if(!backendSession?.user?.id)throw new Error('Inicia sessão para alterar o perfil.');
+ const clean=String(name||'').trim();
+ if(!clean)throw new Error('Indica o teu nome.');
+ const {error}=await supabaseClient.rpc('update_my_profile',{p_display_name:clean});
+ if(error)throw error;
+ await refreshMyBackendProfile();
+}
+async function requestMyMemberNumber(memberNumber){
+ if(!backendSession?.user?.id)throw new Error('Inicia sessão para enviar um pedido de sócio.');
+ const {error}=await supabaseClient.rpc('request_member_number',{p_member_number:String(memberNumber||'').trim()||null});
+ if(error)throw error;
+ await refreshMyBackendProfile();
+ if(backendRoles.includes('admin'))await loadBackendPeopleData();
+}
+async function changeMyPassword(password,password2){
+ if(!backendSession?.user?.id)throw new Error('Inicia sessão para alterar a palavra-passe.');
+ if(String(password||'').length<6)throw new Error('A palavra-passe deve ter pelo menos 6 caracteres.');
+ if(password!==password2)throw new Error('As palavras-passe não coincidem.');
+ const {error}=await supabaseClient.auth.updateUser({password});
+ if(error)throw error;
 }
 
 
@@ -1349,7 +1378,7 @@ let selectedTeamName=sessionStorage.getItem('teamView')||'ADC Figueiras';
 let selectedPlayerId=sessionStorage.getItem('playerView')||'';
 
 const viewInfo={
- dashboard:['Início','Visão geral do clube'],games:['Jogos','Calendário, resultados e fichas de jogo'],matchcenter:['Match Center','Cronologia e acontecimentos do jogo'],calendar:['Calendário','Treinos e jogos'],seriesResults:['Resultados','Campeonato e Taça AF Porto'],standings:['Classificação','Calculada automaticamente pelos resultados'],team:['Equipa','Jogos, forma recente e resultados'],stats:['Estatísticas','Jogadores e equipa'],player:['Ficha de jogador','Perfil e estatísticas individuais'],squad:['Plantel','Jogadores e disponibilidade'],training:['Treinos','Presenças e pesagens'],weights:['Pesagens','Histórico e evolução do plantel'],notifications:['Notificações','Comunicação com atletas e sócios'],fines:['Multas','Registo interno'],fineRules:['Regras de multas','Motivos e automatismos'],seasons:['Épocas','Arquivo histórico'],people:['Pessoas e acessos','Utilizadores e múltiplas funções'],settings:['Definições','Dados, backups e integrações']
+ dashboard:['Início','Visão geral do clube'],games:['Jogos','Calendário, resultados e fichas de jogo'],matchcenter:['Match Center','Cronologia e acontecimentos do jogo'],calendar:['Calendário','Treinos e jogos'],seriesResults:['Resultados','Campeonato e Taça AF Porto'],standings:['Classificação','Calculada automaticamente pelos resultados'],team:['Equipa','Jogos, forma recente e resultados'],stats:['Estatísticas','Jogadores e equipa'],player:['Ficha de jogador','Perfil e estatísticas individuais'],squad:['Plantel','Jogadores e disponibilidade'],training:['Treinos','Presenças e pesagens'],weights:['Pesagens','Histórico e evolução do plantel'],notifications:['Notificações','Comunicação com atletas e sócios'],account:['A minha conta','Perfil, sócio e segurança'],fines:['Multas','Registo interno'],fineRules:['Regras de multas','Motivos e automatismos'],seasons:['Épocas','Arquivo histórico'],people:['Pessoas e acessos','Utilizadores e múltiplas funções'],settings:['Definições','Dados, backups e integrações']
 };
 
 const NAV_ICONS={
@@ -1389,6 +1418,7 @@ const navDefs=[
   ['matchcenter','ball','Match Center','#ff625c']
  ]},
  {group:'Comunicação',items:[['notifications','bell','Notificações','#fbbf24']]},
+ {group:'Conta',items:[['account','users','A minha conta','#8bafff']]},
  {group:'Gestão',items:[
   ['fines','banknote','Multas','#fbbf24'],
   ['fineRules','gavel','Regras de multas','#60a5fa'],
@@ -1398,14 +1428,14 @@ const navDefs=[
  ]}
 ];
 const access={
- public:['dashboard','games','calendar','seriesResults','standings','team','stats','player','notifications'],
- member:['dashboard','games','calendar','seriesResults','standings','team','stats','player','notifications'],
- player:['dashboard','games','calendar','seriesResults','standings','team','stats','player','squad','training','weights','matchcenter','notifications'],
- captain:['dashboard','games','calendar','seriesResults','standings','team','stats','player','squad','training','weights','matchcenter','notifications','fines','fineRules'],
- staff:['dashboard','games','calendar','seriesResults','standings','team','stats','player','squad','training','weights','matchcenter','notifications','fines','fineRules'],
- admin:['dashboard','games','calendar','seriesResults','standings','team','stats','player','squad','training','weights','matchcenter','notifications','fines','fineRules','seasons','people','settings']
+ public:['dashboard','games','calendar','seriesResults','standings','team','stats','player','notifications','account'],
+ member:['dashboard','games','calendar','seriesResults','standings','team','stats','player','notifications','account'],
+ player:['dashboard','games','calendar','seriesResults','standings','team','stats','player','squad','training','weights','matchcenter','notifications','account'],
+ captain:['dashboard','games','calendar','seriesResults','standings','team','stats','player','squad','training','weights','matchcenter','notifications','account','fines','fineRules'],
+ staff:['dashboard','games','calendar','seriesResults','standings','team','stats','player','squad','training','weights','matchcenter','notifications','account','fines','fineRules'],
+ admin:['dashboard','games','calendar','seriesResults','standings','team','stats','player','squad','training','weights','matchcenter','notifications','account','fines','fineRules','seasons','people','settings']
 };
-const can=v=>!(v==='notifications'&&guestMode)&&(access[mode]||access.public).includes(v);
+const can=v=>!((v==='notifications'||v==='account')&&guestMode)&&(access[mode]||access.public).includes(v);
 const canEdit=()=>mode==='staff'||mode==='admin';
 const canManageFines=()=>mode==='captain'||mode==='staff'||mode==='admin';
 const isAdmin=()=>mode==='admin';
@@ -1568,7 +1598,7 @@ function renderChrome(){
 }
 function notificationVisible(n){if(n?.backendId)return !!backendSession;if(mode==='admin'||mode==='staff')return true;if(mode==='player'||mode==='captain'){if(n.audience==='player')return n.playerId===currentUser()?.playerId;return ['all','players','roster'].includes(n.audience)}if(mode==='member')return ['all','members'].includes(n.audience);return n.audience==='all'}
 function showView(v){if(!can(v)){v='dashboard'}currentView=v;$$('.view').forEach(x=>x.classList.remove('active'));$(`#view-${v}`).classList.add('active');$('#pageTitle').textContent=viewInfo[v][0];$('#pageSubtitle').textContent=viewInfo[v][1];$('#sidebar').classList.remove('open');renderChrome();renderView(v)}
-function renderView(v){({dashboard:renderDashboard,games:renderGames,matchcenter:renderMatchCenter,calendar:renderCalendar,seriesResults:renderSeriesResults,standings:renderStandings,team:renderTeamPage,stats:renderStats,player:renderPlayerProfile,squad:renderSquad,training:renderTraining,weights:renderWeights,notifications:renderNotifications,fines:renderFines,fineRules:renderFineRules,seasons:renderSeasons,people:renderPeople,settings:renderSettings}[v]||renderDashboard)()}
+function renderView(v){({dashboard:renderDashboard,games:renderGames,matchcenter:renderMatchCenter,calendar:renderCalendar,seriesResults:renderSeriesResults,standings:renderStandings,team:renderTeamPage,stats:renderStats,player:renderPlayerProfile,squad:renderSquad,training:renderTraining,weights:renderWeights,notifications:renderNotifications,account:renderAccount,fines:renderFines,fineRules:renderFineRules,seasons:renderSeasons,people:renderPeople,settings:renderSettings}[v]||renderDashboard)()}
 
 function playerStats(){
  const out={};state.players.forEach(p=>out[p.id]={games:0,callups:0,starts:0,goals:0,assists:0,yellow:0,red:0});
@@ -1780,6 +1810,24 @@ function openCustomNotification(){
  openModal('Nova notificação','Mensagem manual guardada online.',`<form id="notifForm"><div class="form-grid"><div class="field full"><label>Título</label><input name="title" required></div><div class="field full"><label>Mensagem</label><textarea name="body" required></textarea></div><div class="field"><label>Destinatários</label><select name="audience"><option value="all_registered">Todos os utilizadores registados</option><option value="players_members">Jogadores + Sócios</option><option value="players">Jogadores</option><option value="members">Sócios</option></select></div><div class="field"><label>Quando enviar?</label><select name="timingMode" id="customTimingMode"><option value="now">Enviar agora</option><option value="schedule">Programar</option></select></div><div class="field custom-schedule-field hidden"><label>Data</label><input name="scheduleDate" type="date" value="${nowKey()}"></div><div class="field custom-schedule-field hidden"><label>Hora</label><input name="scheduleTime" type="time"></div></div><div class="form-actions"><button type="button" class="btn secondary" data-close>Cancelar</button><button class="btn" id="sendCustomNotification">Enviar</button></div></form>`);
  const sync=()=>$$('.custom-schedule-field',$('#notifForm')).forEach(el=>el.classList.toggle('hidden',$('#customTimingMode').value!=='schedule'));$('#customTimingMode').onchange=sync;sync();
  $('#notifForm').onsubmit=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target)),b=$('#sendCustomNotification');let scheduledFor=null;if(d.timingMode==='schedule'){if(!d.scheduleDate||!d.scheduleTime){alert('Indica a data e hora.');return}scheduledFor=portugalKickoffIso(d.scheduleDate,d.scheduleTime);if(new Date(scheduledFor).getTime()<=Date.now()){alert('Escolhe uma data/hora futura ou envia agora.');return}}b.disabled=true;b.textContent=d.timingMode==='schedule'?'A programar…':'A enviar…';try{const r=await createNotification({type:'general',title:d.title,body:d.body,audience:d.audience,scheduledFor});closeModal();renderChrome();renderNotifications();toast(d.timingMode==='schedule'?`Notificação programada para ${r.recipient_count||0} utilizador(es).`:`Notificação enviada a ${r.recipient_count||0} utilizador(es).`)}catch(err){console.error(err);alert(`Não foi possível enviar a notificação.\n\n${err?.message||'Erro desconhecido'}`);b.disabled=false;b.textContent='Enviar'}};$('[data-close]').onclick=closeModal;
+}
+
+function memberStatusAccountHtml(){
+ const status=backendProfile?.member_status||'none';
+ const number=backendProfile?.member_number||'';
+ if(status==='verified'||backendRoles.includes('member'))return `<div class="info-strip"><strong>Sócio validado</strong><br>O número de sócio <strong>${esc(number||'—')}</strong> foi validado pelo clube. Para o alterar, contacta um Admin.</div>`;
+ if(status==='pending')return `<div class="warning-strip"><strong>Pedido pendente de aprovação</strong><br>Indicastes o n.º de sócio <strong>${esc(number||'—')}</strong>. O acesso de Sócio só será atribuído depois de um Admin confirmar o número.</div>`;
+ return `<div class="note">Se fores sócio, podes indicar o teu número abaixo. <strong>Inserir o número não dá acesso de Sócio automaticamente</strong>: o pedido fica pendente até um Admin o aprovar.</div>`;
+}
+function renderAccount(){
+ if(!backendSession){$('#view-account').innerHTML=empty('Inicia sessão para gerir a tua conta.');return}
+ const verified=backendProfile?.member_status==='verified'||backendRoles.includes('member');
+ const pending=backendProfile?.member_status==='pending';
+ $('#view-account').innerHTML=`<div class="section-head"><div><h2>A minha conta</h2><p>Dados pessoais, pedido de sócio e segurança.</p></div>${verified?pill('Sócio validado','green'):pending?pill('Sócio por validar','amber'):pill('Conta registada','gray')}</div><div class="grid equal2"><div class="card"><div class="card-head"><div><h3>Perfil</h3><p>Informação apresentada na aplicação.</p></div></div><form id="myProfileForm"><div class="form-grid"><div class="field full"><label>Nome</label><input name="displayName" value="${esc(backendDisplayName())}" required></div><div class="field full"><label>Email</label><input value="${esc(backendSession.user.email||'')}" disabled><small>O email de autenticação não é alterado aqui.</small></div></div><div class="form-actions"><button class="btn" id="saveMyProfile">Guardar nome</button></div></form></div><div class="card"><div class="card-head"><div><h3>Número de sócio</h3><p>Validação obrigatória pelo clube.</p></div></div>${memberStatusAccountHtml()}<div style="height:12px"></div><form id="memberRequestForm"><div class="field"><label>N.º de sócio</label><input name="memberNumber" value="${esc(backendProfile?.member_number||'')}" ${verified?'disabled':''} placeholder="Ex.: 123"><small>${verified?'Número validado. Apenas um Admin o pode alterar.':pending?'Podes corrigir o número enquanto o pedido estiver pendente. Qualquer alteração continua pendente de aprovação.':'O pedido ficará pendente até validação por um Admin.'}</small></div>${verified?'':`<div class="form-actions"><button class="btn" id="saveMemberRequest">${pending?'Atualizar pedido':'Enviar para aprovação'}</button>${pending?'<button type="button" class="btn secondary" id="cancelMemberRequest">Cancelar pedido</button>':''}</div>`}</form></div></div><div style="height:15px"></div><div class="card"><div class="card-head"><div><h3>Segurança</h3><p>Alterar a palavra-passe desta conta.</p></div></div><form id="changePasswordForm"><div class="form-grid"><div class="field"><label>Nova palavra-passe</label><input name="password" type="password" autocomplete="new-password" minlength="6" required></div><div class="field"><label>Confirmar nova palavra-passe</label><input name="password2" type="password" autocomplete="new-password" minlength="6" required></div></div><div class="form-actions"><button class="btn" id="changeMyPasswordBtn">Alterar palavra-passe</button></div></form><div class="note">Se não te lembrares da palavra-passe atual, usa “Esqueci-me da palavra-passe” no ecrã de login.</div></div>`;
+ $('#myProfileForm').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),b=$('#saveMyProfile');b.disabled=true;b.textContent='A guardar…';try{await updateMyProfileName(fd.get('displayName'));renderChrome();renderAccount();toast('Perfil atualizado.')}catch(err){console.error(err);alert(`Não foi possível atualizar o perfil.\n\n${err?.message||'Erro desconhecido'}`);b.disabled=false;b.textContent='Guardar nome'}};
+ if($('#memberRequestForm'))$('#memberRequestForm').onsubmit=async e=>{e.preventDefault();if(verified)return;const fd=new FormData(e.target),number=String(fd.get('memberNumber')||'').trim();if(!number){alert('Indica o número de sócio.');return}const b=$('#saveMemberRequest');b.disabled=true;b.textContent='A enviar…';try{await requestMyMemberNumber(number);renderChrome();renderAccount();toast('Pedido de sócio enviado para aprovação.')}catch(err){console.error(err);alert(`Não foi possível enviar o pedido.\n\n${err?.message||'Erro desconhecido'}`);b.disabled=false;b.textContent=pending?'Atualizar pedido':'Enviar para aprovação'}};
+ $('#cancelMemberRequest')&&($('#cancelMemberRequest').onclick=async()=>{if(!confirm('Cancelar o pedido de validação de sócio?'))return;const b=$('#cancelMemberRequest');b.disabled=true;try{await requestMyMemberNumber('');renderChrome();renderAccount();toast('Pedido de sócio cancelado.')}catch(err){console.error(err);alert(`Não foi possível cancelar o pedido.\n\n${err?.message||'Erro desconhecido'}`);b.disabled=false}});
+ $('#changePasswordForm').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),b=$('#changeMyPasswordBtn');b.disabled=true;b.textContent='A alterar…';try{await changeMyPassword(String(fd.get('password')||''),String(fd.get('password2')||''));e.target.reset();toast('Palavra-passe alterada.')}catch(err){console.error(err);alert(`Não foi possível alterar a palavra-passe.\n\n${friendlyAuthError(err)||err?.message||'Erro desconhecido'}`)}finally{b.disabled=false;b.textContent='Alterar palavra-passe'}};
 }
 
 function renderTraining(){const rows=[...seasonTrainings()].sort((a,b)=>dateTimeOf(b.date,b.time)-dateTimeOf(a.date,a.time));$('#view-training').innerHTML=`<div class="section-head"><div><h2>Treinos</h2><p>Presenças e pesagens guardadas online. Os atletas não precisam confirmar nem justificar na app.</p></div>${canEdit()?'<button class="btn" id="addTraining">＋ Novo treino</button>':''}</div>${rows.length?`<div class="table-wrap"><table><thead><tr><th>Data</th><th>Local</th><th>Presenças</th><th>Pesagens</th><th></th></tr></thead><tbody>${rows.map(t=>{const entries=Object.values(t.entries||{});const pres=entries.filter(e=>e.status==='Presente'||e.status==='Atrasado').length;const ws=entries.filter(e=>e.pre||e.post).length;return `<tr><td><strong>${fmtDate(t.date)}</strong><div class="meta">${esc(t.time||'')}</div></td><td>${esc(t.location||'—')}</td><td>${pres}/${state.players.length}</td><td>${ws}</td><td><div class="inline-actions"><button class="btn secondary sm open-training" data-id="${t.id}">${canEdit()?'Gerir':'Ver'}</button>${canEdit()?`<button class="btn danger sm delete-training" data-id="${t.id}">Eliminar</button>`:''}</div></td></tr>`}).join('')}</tbody></table></div>`:empty('Ainda não existem treinos','Cria o primeiro treino da época.')}`;$('#addTraining')&&($('#addTraining').onclick=openTrainingCreate);$$('.open-training').forEach(b=>b.onclick=()=>openTrainingManage(b.dataset.id));$$('.delete-training').forEach(b=>b.onclick=async()=>{const t=state.trainings.find(x=>x.id===b.dataset.id);if(!t||!confirm('Eliminar este treino?'))return;const btn=b;btn.disabled=true;btn.textContent='A eliminar…';try{if(backendConnected&&t.backendId)await deleteBackendTraining(t);state.trainings=state.trainings.filter(x=>x.id!==t.id);saveState('Treino eliminado do Supabase.')}catch(err){console.error(err);alert(`Não foi possível eliminar o treino.\n\n${err?.message||'Erro desconhecido'}`);btn.disabled=false;btn.textContent='Eliminar'}})}

@@ -1,12 +1,12 @@
-# ADC Figueiras V3.12 — Recuperação de palavra-passe
+# V3.13 — Conta e validação de sócio
 
-- Adicionado "Esqueci-me da palavra-passe" no ecrã de login.
-- Pedido de link de recuperação através do Supabase Auth.
-- Mensagem neutra para evitar revelar se um email tem conta.
-- Tratamento do evento PASSWORD_RECOVERY e do link de recuperação.
-- Novo ecrã para definir e confirmar uma nova palavra-passe.
-- Após alteração, a sessão temporária de recuperação é terminada e o utilizador volta ao login.
-- Confirmação de email de novos registos passa a usar explicitamente o URL atual da app como redirect.
-- Mensagens de autenticação mais claras para credenciais incorretas, email não confirmado, rate-limit e links expirados.
-- Cache/service worker atualizado para V3.12.
-- Diagnóstico: `v3.12-password-recovery`.
+- Nova área **A minha conta** para utilizadores autenticados.
+- Alteração do nome apresentado na app.
+- Pedido/alteração do número de sócio pelo próprio utilizador.
+- O número de sócio fica sempre `pending` até validação de um Admin.
+- Utilizadores não podem autoatribuir a função `member` nem marcar o pedido como validado.
+- Sócios já validados não podem alterar o número sem intervenção de Admin.
+- Possibilidade de cancelar um pedido ainda pendente.
+- Alteração da palavra-passe dentro da área da conta.
+- Texto do registo clarificado: indicar número de sócio não concede acesso automaticamente.
+- Cache/service worker atualizado para V3.13.

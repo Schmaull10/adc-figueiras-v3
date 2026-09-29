@@ -1,15 +1,15 @@
-# ADC Figueiras V3.12
+# ADC Figueiras V3.13
 
-Build baseada na V3.11.
+Esta build acrescenta a área **A minha conta** e o fluxo seguro de pedido de número de sócio.
 
-## Novidade principal
-Recuperação de palavra-passe por email através do Supabase Auth.
+Antes de publicar a build, executar no Supabase o SQL fornecido na conversa para criar as RPCs:
+- `public.update_my_profile`
+- `public.request_member_number`
 
-## Configuração necessária no Supabase
-Antes de testar, configure em Authentication > URL Configuration:
-- Site URL: URL HTTPS exato da aplicação GitHub Pages.
-- Redirect URLs: adicionar o mesmo URL exato.
+O fluxo de sócio é deliberadamente separado da validação:
+1. o utilizador indica o número;
+2. o perfil passa para `member_status = 'pending'`;
+3. o Admin valida em **Pessoas e acessos**;
+4. apenas a ação de Admin atribui o acesso de Sócio.
 
-Em Authentication > Sign In / Providers > Email, recomenda-se manter Confirm Email ativo.
-
-Não é necessária qualquer migração SQL para esta versão.
+A configuração de SMTP e dos templates de email continua a ser feita no Dashboard do Supabase e não requer segredos no GitHub.
