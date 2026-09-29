@@ -1,28 +1,24 @@
-# ADC Figueiras V3.14 — Release Candidate
+# ADC Figueiras V3.15 — Final Candidate
 
-Build consolidada de preparação para lançamento, baseada na V3.13.
+Esta é a última build candidata antes da ADC Figueiras 1.0.
 
-## Antes de publicar
-1. Executar a migração SQL V3.14 fornecida na conversa (`privacy_acknowledgements` + reforço RLS de multas/regras).
-2. Fazer upload de todos os ficheiros desta pasta para o repositório GitHub Pages da V3.
-3. Confirmar em Definições → Diagnóstico da aplicação: `v3.14-release-candidate`.
+## Ordem recomendada
+1. Executar a migração SQL V3.15 fornecida na conversa.
+2. Publicar todos os ficheiros desta pasta no GitHub Pages.
+3. Confirmar em Definições → Diagnóstico: `v3.15-final-candidate`.
+4. Em Definições, executar `Auditoria final`.
+5. Usar `Limpar notificações de teste`.
+6. Exportar `Snapshot de release` e guardar o JSON num local seguro.
+7. Configurar já os templates de email no Supabase; isto não exige SMTP próprio.
+8. Quando existir acesso ao email final do clube, configurar SMTP.
+9. Criar uma conta nova do zero, confirmar email e testar recuperação de password.
+10. Se tudo passar, publicar a versão 1.0.
 
-## O que esta RC acrescenta
-- área Privacidade, pública e acessível a qualquer utilizador;
-- registo online da tomada de conhecimento da política de privacidade;
-- onboarding de privacidade antes do convite de push;
-- checklist de primeiro acesso em A minha conta;
-- checklist consolidada de Release Candidate nas Definições;
-- matriz de permissões visível ao Admin;
-- correção de permissões do Capitão: gere multas individuais, mas não regras de multas;
-- reforço RLS das multas: Jogador vê apenas as próprias; Capitão/Equipa Técnica/Admin consultam e gerem as da equipa;
-- passwords novas com mínimo de 8 caracteres no frontend;
-- linguagem de produção e limpeza de referências antigas a “testes/migração”;
-- cache/service worker atualizado para a RC;
-- atualização do nome instalado da PWA para “ADC Figueiras”.
+## Snapshot de release
+O snapshot exportado pela app inclui dados funcionais/configuração do backend e o estado local da aplicação. Não inclui passwords, secrets do Supabase, chaves VAPID privadas nem credenciais SMTP. É um snapshot funcional de release, não substitui um backup integral administrado da base de dados.
 
-## Ainda pendente antes do release
-- configurar SMTP próprio e personalizar os emails de autenticação;
-- executar um teste final de ponta a ponta com uma conta criada do zero.
+## Limpeza de testes
+A rotina V3.15 elimina apenas notificações com títulos/corpos de teste conhecidos usados durante a validação do Push Automático. Não elimina subscrições push nem notificações normais.
 
-Não é necessário alterar as Edge Functions de push nesta build.
+## SMTP
+O SMTP continua deliberadamente pendente. Os templates podem ser preparados antes de existir acesso a `adcf2015@gmail.com`.
