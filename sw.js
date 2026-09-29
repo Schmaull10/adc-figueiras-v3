@@ -1,4 +1,4 @@
-const CACHE='adc-figueiras-v3-account-member-1';
+const CACHE='adc-figueiras-v3-release-candidate-1';
 const OFFLINE_URL='./index.html';
 const ASSETS=[
   './index.html','./styles.css','./app.js','./manifest.webmanifest',

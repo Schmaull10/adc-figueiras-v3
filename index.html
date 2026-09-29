@@ -8,18 +8,18 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Figueiras" />
-  <title>ADC Figueiras · V3</title>
-  <link rel="manifest" href="manifest.webmanifest?v=3.13" />
+  <title>ADC Figueiras</title>
+  <link rel="manifest" href="manifest.webmanifest?v=3.14" />
   <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png" />
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
-  <link rel="stylesheet" href="styles.css?v=3.13" />
+  <link rel="stylesheet" href="styles.css?v=3.14" />
 </head>
 <body>
   <section class="auth-gate" id="authGate">
     <div class="auth-card">
       <div class="auth-logo"><img src="assets/adc-figueiras-emblema.png" alt="ADC Figueiras" /></div>
       <div class="auth-copy">
-        <span class="auth-kicker">ADC FIGUEIRAS · V3</span>
+        <span class="auth-kicker">ADC FIGUEIRAS · RELEASE CANDIDATE</span>
         <h1 id="authTitle">Entrar</h1>
         <p id="authDescription">Entra com a tua conta ADC Figueiras.</p>
       </div>
@@ -35,7 +35,7 @@
         <label>Nome<input name="name" type="text" autocomplete="name" required placeholder="O teu nome" /></label>
         <label>Email<input name="email" type="email" autocomplete="email" required placeholder="teu@email.pt" /></label>
         <label>N.º de sócio <span class="muted">(opcional)</span><input name="memberNumber" type="text" autocomplete="off" placeholder="Se fores sócio" /><small>O número fica pendente até ser validado por um Admin.</small></label>
-        <label>Palavra-passe<input name="password" type="password" autocomplete="new-password" required placeholder="Mínimo 6 caracteres" /></label>
+        <label>Palavra-passe<input name="password" type="password" autocomplete="new-password" minlength="8" required placeholder="Mínimo 8 caracteres" /></label>
         <label>Confirmar palavra-passe<input name="password2" type="password" autocomplete="new-password" required placeholder="Repete a palavra-passe" /></label>
         <button class="btn auth-submit" id="signupBtn" type="submit">Criar conta</button>
         <button class="btn secondary auth-alt" id="backToLoginBtn" type="button">Voltar a Entrar</button>
@@ -48,12 +48,12 @@
       </form>
       <form id="recoveryPasswordForm" class="auth-form hidden">
         <div class="info-strip">O link foi validado. Define agora uma nova palavra-passe para a tua conta.</div>
-        <label>Nova palavra-passe<input name="password" type="password" autocomplete="new-password" required placeholder="Mínimo 6 caracteres" /></label>
+        <label>Nova palavra-passe<input name="password" type="password" autocomplete="new-password" minlength="8" required placeholder="Mínimo 8 caracteres" /></label>
         <label>Confirmar nova palavra-passe<input name="password2" type="password" autocomplete="new-password" required placeholder="Repete a palavra-passe" /></label>
         <button class="btn auth-submit" id="recoveryPasswordBtn" type="submit">Guardar nova palavra-passe</button>
       </form>
       <div class="auth-message" id="authMessage" aria-live="polite"></div>
-      <div class="auth-foot">Projeto de testes V3 · A V2.10 está separada e não é alterada.</div>
+      <div class="auth-foot">ADC Figueiras · Release Candidate · <button class="auth-link inline" id="authPrivacyBtn" type="button">Privacidade</button></div>
     </div>
   </section>
 
@@ -61,7 +61,7 @@
     <aside class="sidebar" id="sidebar">
       <div class="brand">
         <div class="brand-mark"><img src="assets/adc-figueiras-emblema.png" alt="Emblema ADC Figueiras" /></div>
-        <div><strong>ADC Figueiras</strong><span>Clube · V3.13</span></div>
+        <div><strong>ADC Figueiras</strong><span>Clube · RC V3.14</span></div>
       </div>
 
       <div class="season-switch">
@@ -115,6 +115,7 @@
       <section class="view" id="view-weights"></section>
       <section class="view" id="view-notifications"></section>
       <section class="view" id="view-account"></section>
+      <section class="view" id="view-privacy"></section>
       <section class="view" id="view-fines"></section>
       <section class="view" id="view-fineRules"></section>
       <section class="view" id="view-seasons"></section>
@@ -133,6 +134,6 @@
   <input type="file" id="importInput" accept="application/json" hidden />
   <div class="toast" id="toast"></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-  <script src="app.js?v=3.13"></script>
+  <script src="app.js?v=3.14"></script>
 </body>
 </html>
