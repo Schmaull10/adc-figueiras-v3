@@ -4,7 +4,7 @@ const V2_KEY='adc-figueiras-team-manager-v3-dev';
 const V1_KEY='adc-figueiras-team-manager-v3-legacy-unused';
 const MODE_KEY='adc-figueiras-v3-preview-mode';
 const AUTO_BACKUP_KEY='adc-figueiras-team-manager-v3-autobackup';
-const APP_VERSION='3.8.1-public-access-fix';
+const APP_VERSION='3.8.2-auth-session-fix';
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const pad=n=>String(n).padStart(2,'0');
@@ -739,6 +739,22 @@ function showAuthGate(){
 function showAuthenticatedApp(){
  $('#authGate')?.classList.add('hidden');$('#appShell')?.classList.remove('auth-hidden');
 }
+function isJwtSessionError(err){
+ const msg=String(err?.message||err||'').toLowerCase();
+ return msg.includes('jwt')||msg.includes('jw')&&msg.includes('token')||msg.includes('token has expired')||msg.includes('invalid token')||msg.includes('refresh token');
+}
+async function clearLocalSupabaseSession(){
+ try{await supabaseClient?.auth.signOut({scope:'local'})}catch(e){console.warn('Não foi possível limpar a sessão local anterior.',e)}
+ backendSession=null;backendProfile=null;backendRoles=[];backendPlayerAccount=null;
+}
+async function loadIdentityWithOneRetry(session){
+ try{return await loadBackendIdentity(session)}catch(err){
+  if(!isJwtSessionError(err))throw err;
+  const {data,error}=await supabaseClient.auth.refreshSession();
+  if(error||!data?.session)throw err;
+  return await loadBackendIdentity(data.session);
+ }
+}
 async function loadBackendIdentity(session){
  backendSession=session;
  const userId=session?.user?.id;
@@ -806,7 +822,7 @@ async function signUpV3(name,email,memberNumber,password,password2){
    options:{data:{display_name:String(name||'').trim(),member_number:cleanMember||null}}
   });
   if(error)throw error;
-  if(data.session){await loadBackendIdentity(data.session);showAuthenticatedApp();renderChrome();showView('dashboard');return}
+  if(data.session){await loadIdentityWithOneRetry(data.session);showAuthenticatedApp();renderChrome();showView('dashboard');return}
   showSignupMode(false);const em=$('#loginEmail');if(em)em.value=email;
   setAuthMessage(cleanMember?'Conta criada. Confirma o email que recebeste. O teu número de sócio ficará pendente de validação pelo clube.':'Conta criada. Confirma o email que recebeste e depois inicia sessão.','ok');
  }catch(err){console.error(err);setAuthMessage(err?.message||'Não foi possível criar a conta.','error')}finally{if(btn){btn.disabled=false;btn.textContent='Criar conta'}}
@@ -826,7 +842,24 @@ async function loadPublicBackend(){
 }
 async function continueAsPublic(){
  setAuthMessage('A abrir a área pública…');
- try{await loadPublicBackend();showAuthenticatedApp();renderChrome();showView('dashboard')}catch(err){console.error(err);setAuthMessage(`Não foi possível abrir a área pública: ${err?.message||'erro desconhecido'}`,'error')}
+ try{
+  // Garante que o primeiro pedido público usa a chave anónima e não um JWT antigo
+  // que possa ter ficado guardado no browser de uma sessão anterior.
+  await clearLocalSupabaseSession();
+  await loadPublicBackend();
+  showAuthenticatedApp();renderChrome();showView('dashboard');
+ }catch(err){
+  console.error(err);
+  if(isJwtSessionError(err)){
+   try{
+    await clearLocalSupabaseSession();
+    await loadPublicBackend();
+    showAuthenticatedApp();renderChrome();showView('dashboard');
+    return;
+   }catch(retryErr){err=retryErr}
+  }
+  setAuthMessage(`Não foi possível abrir a área pública: ${err?.message||'erro desconhecido'}`,'error');
+ }
 }
 function leavePublicMode(){
  guestMode=false;backendSession=null;backendProfile=null;backendRoles=[];backendPlayerAccount=null;backendConnected=false;mode='public';
@@ -837,7 +870,7 @@ async function signInV3(email,password){
  try{
   const {data,error}=await supabaseClient.auth.signInWithPassword({email,password});
   if(error)throw error;
-  await loadBackendIdentity(data.session);
+  await loadIdentityWithOneRetry(data.session);
   showAuthenticatedApp();
   renderChrome();showView('dashboard');
  }catch(err){
@@ -861,7 +894,7 @@ async function bootV3(){
  $('#logoutBtn').onclick=()=>guestMode?leavePublicMode():signOutV3();
  try{
   const {data,error}=await supabaseClient.auth.getSession();if(error)throw error;
-  if(data.session){await loadBackendIdentity(data.session);showAuthenticatedApp();renderChrome();showView('dashboard')}
+  if(data.session){await loadIdentityWithOneRetry(data.session);showAuthenticatedApp();renderChrome();showView('dashboard')}
   else showAuthGate();
  }catch(err){console.error(err);setAuthMessage(`Ligação ao backend falhou: ${err?.message||'erro desconhecido'}`,'error');showAuthGate()}
 }
