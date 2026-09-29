@@ -9,10 +9,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Figueiras" />
   <title>ADC Figueiras · V3</title>
-  <link rel="manifest" href="manifest.webmanifest?v=3.10.1" />
+  <link rel="manifest" href="manifest.webmanifest?v=3.12" />
   <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png" />
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
-  <link rel="stylesheet" href="styles.css?v=3.10.1" />
+  <link rel="stylesheet" href="styles.css?v=3.12" />
 </head>
 <body>
   <section class="auth-gate" id="authGate">
@@ -26,6 +26,7 @@
       <form id="loginForm" class="auth-form">
         <label>Email<input id="loginEmail" name="email" type="email" autocomplete="email" required placeholder="teu@email.pt" /></label>
         <label>Palavra-passe<input id="loginPassword" name="password" type="password" autocomplete="current-password" required placeholder="••••••••" /></label>
+        <button class="auth-link" id="forgotPasswordBtn" type="button">Esqueci-me da palavra-passe</button>
         <button class="btn auth-submit" id="loginBtn" type="submit">Entrar</button>
         <button class="btn secondary auth-alt" id="showSignupBtn" type="button">Criar conta</button>
         <button class="btn secondary auth-alt" id="continuePublicBtn" type="button">Continuar sem conta</button>
@@ -39,6 +40,18 @@
         <button class="btn auth-submit" id="signupBtn" type="submit">Criar conta</button>
         <button class="btn secondary auth-alt" id="backToLoginBtn" type="button">Voltar a Entrar</button>
       </form>
+      <form id="forgotPasswordForm" class="auth-form hidden">
+        <div class="info-strip">Indica o email da tua conta. Se existir uma conta associada, receberás um link para definir uma nova palavra-passe.</div>
+        <label>Email<input id="forgotPasswordEmail" name="email" type="email" autocomplete="email" required placeholder="teu@email.pt" /></label>
+        <button class="btn auth-submit" id="forgotPasswordSubmitBtn" type="submit">Enviar link de recuperação</button>
+        <button class="btn secondary auth-alt" id="forgotBackToLoginBtn" type="button">Voltar a Entrar</button>
+      </form>
+      <form id="recoveryPasswordForm" class="auth-form hidden">
+        <div class="info-strip">O link foi validado. Define agora uma nova palavra-passe para a tua conta.</div>
+        <label>Nova palavra-passe<input name="password" type="password" autocomplete="new-password" required placeholder="Mínimo 6 caracteres" /></label>
+        <label>Confirmar nova palavra-passe<input name="password2" type="password" autocomplete="new-password" required placeholder="Repete a palavra-passe" /></label>
+        <button class="btn auth-submit" id="recoveryPasswordBtn" type="submit">Guardar nova palavra-passe</button>
+      </form>
       <div class="auth-message" id="authMessage" aria-live="polite"></div>
       <div class="auth-foot">Projeto de testes V3 · A V2.10 está separada e não é alterada.</div>
     </div>
@@ -48,7 +61,7 @@
     <aside class="sidebar" id="sidebar">
       <div class="brand">
         <div class="brand-mark"><img src="assets/adc-figueiras-emblema.png" alt="Emblema ADC Figueiras" /></div>
-        <div><strong>ADC Figueiras</strong><span>Clube · V3.11</span></div>
+        <div><strong>ADC Figueiras</strong><span>Clube · V3.12</span></div>
       </div>
 
       <div class="season-switch">
@@ -119,6 +132,6 @@
   <input type="file" id="importInput" accept="application/json" hidden />
   <div class="toast" id="toast"></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-  <script src="app.js?v=3.10.1"></script>
+  <script src="app.js?v=3.12"></script>
 </body>
 </html>

@@ -4,7 +4,7 @@ const V2_KEY='adc-figueiras-team-manager-v3-dev';
 const V1_KEY='adc-figueiras-team-manager-v3-legacy-unused';
 const MODE_KEY='adc-figueiras-v3-preview-mode';
 const AUTO_BACKUP_KEY='adc-figueiras-team-manager-v3-autobackup';
-const APP_VERSION='3.11-auto-push';
+const APP_VERSION='3.12-password-recovery';
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const pad=n=>String(n).padStart(2,'0');
@@ -50,6 +50,8 @@ let backendFinesLoaded=false;
 let backendNotifications={rows:[],recipients:[],preferences:null};
 let backendNotificationsLoaded=false;
 let backendPushDevice={supported:false,permission:'default',subscribed:false,endpoint:'',row:null};
+let passwordRecoveryMode=false;
+let authStateSubscription=null;
 const PUSH_ONBOARDING_KEY_PREFIX='adc-figueiras-push-onboarding-v1:';
 
 const roleRank=['public','member','player','captain','staff','admin'];
@@ -1042,9 +1044,87 @@ function configurePreviewSelector(){
  sel.innerHTML=allowed.map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
  sel.title=backendRoles.includes('admin')?'Pré-visualizar permissões':'Função ativa';
 }
-function showSignupMode(show=true){
- $('#loginForm')?.classList.toggle('hidden',show);$('#signupForm')?.classList.toggle('hidden',!show);
- const title=$('#authTitle'),copy=$('#authDescription');if(title)title.textContent=show?'Criar conta':'Entrar';if(copy)copy.textContent=show?'Qualquer pessoa pode criar conta. Se tiveres um convite, os acessos atribuídos pelo clube são aplicados automaticamente.':'Entra com a tua conta ADC Figueiras.';setAuthMessage('');
+function authRedirectUrl(){
+ try{
+  const url=new URL(window.location.href);
+  url.search='';url.hash='';
+  return url.toString();
+ }catch{return window.location.href.split('#')[0].split('?')[0]}
+}
+function authUrlSignalsRecovery(raw=window.location.href){
+ try{
+  const url=new URL(raw);
+  const hash=new URLSearchParams(String(url.hash||'').replace(/^#/,''));
+  return hash.get('type')==='recovery'||url.searchParams.get('type')==='recovery';
+ }catch{return false}
+}
+function authUrlError(raw=window.location.href){
+ try{
+  const url=new URL(raw);
+  const hash=new URLSearchParams(String(url.hash||'').replace(/^#/,''));
+  const code=hash.get('error_code')||url.searchParams.get('error_code')||'';
+  const description=hash.get('error_description')||url.searchParams.get('error_description')||'';
+  if(!code&&!description)return '';
+  return decodeURIComponent(String(description||code).replace(/\+/g,' '));
+ }catch{return ''}
+}
+function cleanAuthUrl(){
+ try{history.replaceState({},document.title,authRedirectUrl())}catch{}
+}
+function friendlyAuthError(err){
+ const raw=String(err?.message||err||'Erro desconhecido');
+ const msg=raw.toLowerCase();
+ if(msg.includes('invalid login credentials'))return 'Email ou palavra-passe incorretos.';
+ if(msg.includes('email not confirmed'))return 'Ainda tens de confirmar o teu email antes de iniciar sessão.';
+ if(msg.includes('password should be at least'))return 'A palavra-passe não cumpre o tamanho mínimo exigido.';
+ if(msg.includes('rate limit')||msg.includes('too many requests'))return 'Foram feitos demasiados pedidos. Aguarda um pouco e tenta novamente.';
+ if(msg.includes('expired')||msg.includes('otp_expired'))return 'Este link expirou. Pede um novo link de recuperação.';
+ return raw;
+}
+function showAuthMode(mode='login',clearMessage=true){
+ const forms={login:$('#loginForm'),signup:$('#signupForm'),forgot:$('#forgotPasswordForm'),recovery:$('#recoveryPasswordForm')};
+ Object.entries(forms).forEach(([key,el])=>el?.classList.toggle('hidden',key!==mode));
+ const title=$('#authTitle'),copy=$('#authDescription');
+ const texts={
+  login:['Entrar','Entra com a tua conta ADC Figueiras.'],
+  signup:['Criar conta','Qualquer pessoa pode criar conta. Se tiveres um convite, os acessos atribuídos pelo clube são aplicados automaticamente.'],
+  forgot:['Recuperar acesso','Vamos enviar um link seguro para o email associado à tua conta.'],
+  recovery:['Nova palavra-passe','Escolhe uma nova palavra-passe para voltares a aceder à tua conta.']
+ };
+ const [heading,description]=texts[mode]||texts.login;
+ if(title)title.textContent=heading;if(copy)copy.textContent=description;
+ if(clearMessage)setAuthMessage('');
+}
+function showSignupMode(show=true){showAuthMode(show?'signup':'login')}
+function showForgotPasswordMode(){
+ const source=String($('#loginEmail')?.value||'').trim();
+ const target=$('#forgotPasswordEmail');if(target&&source)target.value=source;
+ showAuthMode('forgot');
+}
+async function requestPasswordReset(email){
+ const cleanEmail=String(email||'').trim().toLowerCase();
+ if(!cleanEmail){setAuthMessage('Indica o teu email.','error');return}
+ const btn=$('#forgotPasswordSubmitBtn');if(btn){btn.disabled=true;btn.textContent='A enviar…'}setAuthMessage('');
+ try{
+  const {error}=await supabaseClient.auth.resetPasswordForEmail(cleanEmail,{redirectTo:authRedirectUrl()});
+  if(error)throw error;
+  setAuthMessage('Se existir uma conta com esse email, enviámos um link de recuperação. Verifica também o spam.','ok');
+ }catch(err){console.error(err);setAuthMessage(friendlyAuthError(err),'error')}
+ finally{if(btn){btn.disabled=false;btn.textContent='Enviar link de recuperação'}}
+}
+async function completePasswordRecovery(password,password2){
+ if(String(password||'').length<6){setAuthMessage('A palavra-passe deve ter pelo menos 6 caracteres.','error');return}
+ if(password!==password2){setAuthMessage('As palavras-passe não coincidem.','error');return}
+ const btn=$('#recoveryPasswordBtn');if(btn){btn.disabled=true;btn.textContent='A guardar…'}setAuthMessage('');
+ try{
+  const {error}=await supabaseClient.auth.updateUser({password});if(error)throw error;
+  passwordRecoveryMode=false;cleanAuthUrl();
+  await clearLocalSupabaseSession();
+  showAuthGate();showAuthMode('login',false);
+  const pw=$('#loginPassword');if(pw)pw.value='';
+  setAuthMessage('Palavra-passe atualizada. Já podes iniciar sessão com a nova palavra-passe.','ok');
+ }catch(err){console.error(err);setAuthMessage(friendlyAuthError(err),'error')}
+ finally{if(btn){btn.disabled=false;btn.textContent='Guardar nova palavra-passe'}}
 }
 async function signUpV3(name,email,memberNumber,password,password2){
  if(!String(name||'').trim()){setAuthMessage('Indica o teu nome.','error');return}
@@ -1056,13 +1136,13 @@ async function signUpV3(name,email,memberNumber,password,password2){
   const {data,error}=await supabaseClient.auth.signUp({
    email,
    password,
-   options:{data:{display_name:String(name||'').trim(),member_number:cleanMember||null}}
+   options:{emailRedirectTo:authRedirectUrl(),data:{display_name:String(name||'').trim(),member_number:cleanMember||null}}
   });
   if(error)throw error;
   if(data.session){await loadIdentityWithOneRetry(data.session);showAuthenticatedApp();renderChrome();showView('dashboard');queuePushOnboarding();return}
   showSignupMode(false);const em=$('#loginEmail');if(em)em.value=email;
   setAuthMessage(cleanMember?'Conta criada. Confirma o email que recebeste. O teu número de sócio ficará pendente de validação pelo clube.':'Conta criada. Confirma o email que recebeste e depois inicia sessão.','ok');
- }catch(err){console.error(err);setAuthMessage(err?.message||'Não foi possível criar a conta.','error')}finally{if(btn){btn.disabled=false;btn.textContent='Criar conta'}}
+ }catch(err){console.error(err);setAuthMessage(friendlyAuthError(err)||'Não foi possível criar a conta.','error')}finally{if(btn){btn.disabled=false;btn.textContent='Criar conta'}}
 }
 async function loadPublicBackend(){
  guestMode=true;backendSession=null;backendProfile=null;backendRoles=[];backendPlayerAccount=null;backendPeople={profiles:[],roles:[],links:[],invitations:[]};backendPeopleLoaded=false;
@@ -1112,7 +1192,7 @@ async function signInV3(email,password){
   showAuthenticatedApp();
   renderChrome();showView('dashboard');queuePushOnboarding();
  }catch(err){
-  console.error(err);setAuthMessage(err?.message||'Não foi possível iniciar sessão.','error');
+  console.error(err);setAuthMessage(friendlyAuthError(err)||'Não foi possível iniciar sessão.','error');
   try{await supabaseClient.auth.signOut()}catch{}
  }finally{setAuthBusy(false)}
 }
@@ -1125,17 +1205,31 @@ async function signOutV3(){
 async function bootV3(){
  showAuthGate();
  if(!window.supabase?.createClient){setAuthMessage('Não foi possível carregar a ligação ao Supabase. Confirma que tens internet e atualiza a página.','error');return}
+ const initialRecoveryHint=authUrlSignalsRecovery();
+ const initialAuthError=authUrlError();
  supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+ const listener=supabaseClient.auth.onAuthStateChange((event,session)=>{
+  if(event==='PASSWORD_RECOVERY'){
+   passwordRecoveryMode=true;backendSession=session||backendSession;
+   showAuthGate();showAuthMode('recovery',false);setAuthMessage('Link de recuperação validado. Define uma nova palavra-passe.','ok');
+  }
+ });
+ authStateSubscription=listener?.data?.subscription||null;
  $('#loginForm').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.currentTarget);signInV3(String(fd.get('email')||'').trim(),String(fd.get('password')||''))};
  $('#signupForm').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.currentTarget);signUpV3(String(fd.get('name')||'').trim(),String(fd.get('email')||'').trim().toLowerCase(),String(fd.get('memberNumber')||'').trim(),String(fd.get('password')||''),String(fd.get('password2')||''))};
- $('#showSignupBtn').onclick=()=>showSignupMode(true);$('#backToLoginBtn').onclick=()=>showSignupMode(false);$('#continuePublicBtn').onclick=continueAsPublic;
+ $('#forgotPasswordForm').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.currentTarget);requestPasswordReset(String(fd.get('email')||'').trim())};
+ $('#recoveryPasswordForm').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.currentTarget);completePasswordRecovery(String(fd.get('password')||''),String(fd.get('password2')||''))};
+ $('#showSignupBtn').onclick=()=>showSignupMode(true);$('#backToLoginBtn').onclick=()=>showSignupMode(false);$('#forgotPasswordBtn').onclick=showForgotPasswordMode;$('#forgotBackToLoginBtn').onclick=()=>showAuthMode('login');$('#continuePublicBtn').onclick=continueAsPublic;
  $('#logoutBtn').onclick=()=>guestMode?leavePublicMode():signOutV3();
  try{
   const {data,error}=await supabaseClient.auth.getSession();if(error)throw error;
+  if(initialAuthError&&!data.session){showAuthMode('login',false);setAuthMessage(`Não foi possível validar o link: ${initialAuthError}. Pede um novo link de recuperação.`,'error');cleanAuthUrl();return}
+  if((passwordRecoveryMode||initialRecoveryHint)&&data.session){passwordRecoveryMode=true;backendSession=data.session;showAuthGate();showAuthMode('recovery',false);setAuthMessage('Link de recuperação validado. Define uma nova palavra-passe.','ok');return}
   if(data.session){await loadIdentityWithOneRetry(data.session);showAuthenticatedApp();renderChrome();showView('dashboard');queuePushOnboarding()}
-  else showAuthGate();
- }catch(err){console.error(err);setAuthMessage(`Ligação ao backend falhou: ${err?.message||'erro desconhecido'}`,'error');showAuthGate()}
+  else {showAuthGate();showAuthMode('login',false);if(initialAuthError){setAuthMessage(`Não foi possível validar o link: ${initialAuthError}. Pede um novo link de recuperação.`,'error');cleanAuthUrl()}}
+ }catch(err){console.error(err);setAuthMessage(`Ligação ao backend falhou: ${friendlyAuthError(err)}`,'error');showAuthGate()}
 }
+
 
 const seedPlayers=[
  ['Batista','Jogador'],['David','Jogador'],['Rui Lopes','Jogador'],['João Barros','Jogador'],['Vítor Coelho','Jogador'],

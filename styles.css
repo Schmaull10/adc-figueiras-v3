@@ -63,3 +63,6 @@
 /* V3.7 · contas reais, convites e permissões */
 .auth-alt{width:100%;justify-content:center}.auth-message{margin-top:9px}.field small{display:block;margin-top:5px;color:var(--muted);font-size:9px;line-height:1.35}.people-access-note{font-size:10px;color:var(--muted)}
 .notice-card.training{border-left-color:#fb923c}.notice-card.system{border-left-color:#64748b}.notice-card.unread{box-shadow:0 0 0 2px #dff3e6;background:#fbfffc}.notice-title-row{display:flex;align-items:center;justify-content:space-between;gap:8px}.notice-title-row h4{margin:0}.notification-pref-grid{gap:10px}.notification-pref-grid .check-pill{min-width:145px;justify-content:flex-start}
+
+/* V3.12 · autenticação / recuperação de palavra-passe */
+.auth-link{appearance:none;border:0;background:transparent;color:var(--green);font:inherit;font-size:10px;font-weight:900;text-align:right;padding:0 2px;cursor:pointer;justify-self:end}.auth-link:hover{text-decoration:underline}.auth-link:focus-visible{outline:2px solid rgba(11,100,55,.25);outline-offset:3px;border-radius:4px}

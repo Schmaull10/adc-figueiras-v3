@@ -1,6 +1,12 @@
-# ADC Figueiras V3.11
+# ADC Figueiras V3.12 — Recuperação de palavra-passe
 
-- Prepara a app para envio Web Push automático através do motor de fila no Supabase.
-- Notificações imediatas e programadas continuam a ser criadas na mesma interface.
-- Atualiza o cache da PWA para forçar a nova versão.
-- Mantém o onboarding de push e o teste por dispositivo da V3.10.2.
+- Adicionado "Esqueci-me da palavra-passe" no ecrã de login.
+- Pedido de link de recuperação através do Supabase Auth.
+- Mensagem neutra para evitar revelar se um email tem conta.
+- Tratamento do evento PASSWORD_RECOVERY e do link de recuperação.
+- Novo ecrã para definir e confirmar uma nova palavra-passe.
+- Após alteração, a sessão temporária de recuperação é terminada e o utilizador volta ao login.
+- Confirmação de email de novos registos passa a usar explicitamente o URL atual da app como redirect.
+- Mensagens de autenticação mais claras para credenciais incorretas, email não confirmado, rate-limit e links expirados.
+- Cache/service worker atualizado para V3.12.
+- Diagnóstico: `v3.12-password-recovery`.

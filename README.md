@@ -1,3 +1,15 @@
-ADC Figueiras V3.11 — Auto Push
+# ADC Figueiras V3.12
 
-Frontend da PWA. Requer a migração SQL V3.11, a Edge Function send-push-queue e o Cron configurado no Supabase conforme as instruções fornecidas no chat.
+Build baseada na V3.11.
+
+## Novidade principal
+Recuperação de palavra-passe por email através do Supabase Auth.
+
+## Configuração necessária no Supabase
+Antes de testar, configure em Authentication > URL Configuration:
+- Site URL: URL HTTPS exato da aplicação GitHub Pages.
+- Redirect URLs: adicionar o mesmo URL exato.
+
+Em Authentication > Sign In / Providers > Email, recomenda-se manter Confirm Email ativo.
+
+Não é necessária qualquer migração SQL para esta versão.
