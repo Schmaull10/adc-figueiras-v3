@@ -1,7 +1,12 @@
-# V3.8.1 — Correção da área pública
+# V3.9 — Notificações online
 
-- Corrige `permission denied for table player_availability` ao continuar sem conta.
-- A disponibilidade dos jogadores continua privada e só é carregada para Jogador, Capitão, Equipa Técnica e Admin.
-- Utilizadores públicos, registados sem função interna e Sócios deixam de consultar `player_availability`.
-- A ficha pública do jogador já não mostra um estado de disponibilidade inventado.
-- Atualiza a cache PWA para forçar a nova versão.
+- Notificações internas passam a ser guardadas no Supabase e acompanham a conta entre dispositivos.
+- Preferências individuais para convocatórias, DIA DE JOGO, treinos, resultado final, plano pré-jogo e mensagens gerais.
+- Convocatória envia apenas para jogadores convocados com conta associada.
+- DIA DE JOGO fica programado para as 08:00 do dia do jogo e é dirigido a Jogadores + Sócios.
+- Resultado final pode ser enviado a todos os utilizadores registados.
+- Aviso de treino pode ser enviado diretamente na gestão do treino.
+- Plano pré-jogo pode ser programado para a véspera, com conteúdo individual por jogador.
+- Mensagens gerais manuais para grupos de utilizadores.
+- Notificações lidas sincronizam online.
+- Push com a app fechada ainda não está ativo; será a próxima fase.

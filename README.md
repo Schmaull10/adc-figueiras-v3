@@ -1,5 +1,7 @@
-# ADC Figueiras V3.8
+# ADC Figueiras V3.9
 
-Versão de desenvolvimento com registo livre, área pública sem conta e permissões internas atribuídas pelo clube.
+Versão de desenvolvimento com sistema interno de notificações ligado ao Supabase.
 
-Antes de publicar, executa no Supabase o bloco SQL V3.8 fornecido diretamente na conversa.
+Antes de publicar esta versão, executa no Supabase o bloco SQL V3.9 fornecido diretamente na conversa.
+
+Não é necessário enviar ficheiros SQL para o GitHub.

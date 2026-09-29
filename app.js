@@ -4,7 +4,7 @@ const V2_KEY='adc-figueiras-team-manager-v3-dev';
 const V1_KEY='adc-figueiras-team-manager-v3-legacy-unused';
 const MODE_KEY='adc-figueiras-v3-preview-mode';
 const AUTO_BACKUP_KEY='adc-figueiras-team-manager-v3-autobackup';
-const APP_VERSION='3.8.2-auth-session-fix';
+const APP_VERSION='3.9-notifications-online';
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const pad=n=>String(n).padStart(2,'0');
@@ -45,6 +45,8 @@ let backendTraining={seasonId:'',trainings:[],attendance:[],weighIns:[]};
 let backendTrainingLoaded=false;
 let backendFines={seasonId:'',rules:[],fines:[]};
 let backendFinesLoaded=false;
+let backendNotifications={rows:[],recipients:[],preferences:null};
+let backendNotificationsLoaded=false;
 
 const roleRank=['public','member','player','captain','staff','admin'];
 function highestBackendRole(roles=[]){
@@ -115,6 +117,110 @@ async function saveBackendInvitation(data){
 async function cancelBackendInvitation(id){
  if(!backendRoles.includes('admin'))throw new Error('Só um Admin pode cancelar convites.');
  const {error}=await supabaseClient.rpc('admin_cancel_invitation',{p_invitation_id:id});if(error)throw error;await loadBackendPeopleData();
+}
+
+
+const NOTIFICATION_PREF_DEFAULTS={
+ callup_enabled:true,
+ matchday_enabled:true,
+ training_enabled:true,
+ result_enabled:true,
+ nutrition_enabled:true,
+ general_enabled:true
+};
+function notificationCssType(type){
+ return ({callup:'callup',matchday:'game',training:'training',result:'final',nutrition:'food',general:'system'})[type]||'system';
+}
+function notificationTypeLabel(type){
+ return ({callup:'Convocatória',matchday:'Dia de jogo',training:'Treino',result:'Resultado final',nutrition:'Plano pré-jogo',general:'Geral'})[type]||'Notificação';
+}
+function currentNotificationPreferences(){
+ return {...NOTIFICATION_PREF_DEFAULTS,...(backendNotifications.preferences||{})};
+}
+async function loadBackendNotifications(){
+ if(!backendSession?.user?.id){
+  backendNotifications={rows:[],recipients:[],preferences:null};
+  backendNotificationsLoaded=false;
+  if(typeof state!=='undefined')state.notifications=[];
+  return;
+ }
+ const userId=backendSession.user.id;
+ const [recRes,prefRes]=await Promise.all([
+  supabaseClient.from('notification_recipients').select('notification_id,user_id,read_at,created_at').eq('user_id',userId).order('created_at',{ascending:false}),
+  supabaseClient.from('notification_preferences').select('user_id,callup_enabled,matchday_enabled,training_enabled,result_enabled,nutrition_enabled,general_enabled,updated_at').eq('user_id',userId).maybeSingle()
+ ]);
+ if(recRes.error)throw recRes.error;
+ if(prefRes.error)throw prefRes.error;
+ const recipients=recRes.data||[];
+ const ids=[...new Set(recipients.map(r=>r.notification_id).filter(Boolean))];
+ let rows=[];
+ if(ids.length){
+  const noteRes=await supabaseClient.from('notifications').select('id,type,title,body,match_id,training_id,scheduled_for,dedupe_key,created_by,created_at,updated_at').in('id',ids).order('created_at',{ascending:false});
+  if(noteRes.error)throw noteRes.error;
+  rows=noteRes.data||[];
+ }
+ const recById=new Map(recipients.map(r=>[r.notification_id,r]));
+ const now=Date.now();
+ const visible=rows.filter(n=>!n.scheduled_for||new Date(n.scheduled_for).getTime()<=now);
+ state.notifications=visible.map(n=>{
+  const recipient=recById.get(n.id)||{};
+  return {
+   id:`dbnotif_${n.id}`,
+   backendId:n.id,
+   notificationType:n.type,
+   type:notificationCssType(n.type),
+   title:n.title||'Notificação',
+   body:n.body||'',
+   audience:'user',
+   gameId:state.games?.find(g=>g.backendId===n.match_id)?.id||'',
+   trainingId:state.trainings?.find(t=>t.backendId===n.training_id)?.id||'',
+   createdAt:n.created_at,
+   scheduledDate:n.scheduled_for?String(n.scheduled_for).slice(0,10):'',
+   scheduledFor:n.scheduled_for||'',
+   read:!!recipient.read_at,
+   readAt:recipient.read_at||''
+  };
+ });
+ backendNotifications={rows,recipients,preferences:{...NOTIFICATION_PREF_DEFAULTS,...(prefRes.data||{})}};
+ backendNotificationsLoaded=true;
+}
+async function markBackendNotificationsRead(){
+ if(!backendSession?.user?.id||!backendNotificationsLoaded)return;
+ const unread=(state.notifications||[]).filter(n=>n.backendId&&!n.read);
+ if(!unread.length)return;
+ const ids=unread.map(n=>n.backendId);
+ const stamp=new Date().toISOString();
+ const res=await supabaseClient.from('notification_recipients').update({read_at:stamp}).eq('user_id',backendSession.user.id).in('notification_id',ids).is('read_at',null);
+ if(res.error)throw res.error;
+ unread.forEach(n=>{n.read=true;n.readAt=stamp});
+ (backendNotifications.recipients||[]).forEach(r=>{if(ids.includes(r.notification_id)&&!r.read_at)r.read_at=stamp});
+ renderChrome();
+}
+async function saveBackendNotificationPreferences(prefs){
+ if(!backendSession?.user?.id)throw new Error('Inicia sessão para guardar preferências.');
+ const payload={user_id:backendSession.user.id,...NOTIFICATION_PREF_DEFAULTS,...prefs,updated_at:new Date().toISOString()};
+ const res=await supabaseClient.from('notification_preferences').upsert(payload,{onConflict:'user_id'}).select('*').single();
+ if(res.error)throw res.error;
+ backendNotifications.preferences={...NOTIFICATION_PREF_DEFAULTS,...res.data};
+ return res.data;
+}
+async function sendBackendNotification({type,title,body,audience='all_registered',matchBackendId=null,trainingBackendId=null,playerBackendIds=null,dedupeKey=null,scheduledFor=null}){
+ if(!backendSession)throw new Error('É necessário iniciar sessão.');
+ const {data,error}=await supabaseClient.rpc('create_notification',{
+  p_type:type,
+  p_title:title,
+  p_body:body,
+  p_audience:audience,
+  p_match_id:matchBackendId||null,
+  p_training_id:trainingBackendId||null,
+  p_player_ids:playerBackendIds?.length?playerBackendIds:null,
+  p_dedupe_key:dedupeKey||null,
+  p_scheduled_for:scheduledFor||null
+ });
+ if(error)throw error;
+ await loadBackendNotifications();
+ const row=Array.isArray(data)?data[0]:data;
+ return row||{notification_id:null,recipient_count:0};
 }
 
 const backendTeamCanonicalBySlug={
@@ -787,6 +893,7 @@ async function loadBackendIdentity(session){
   backendFines={seasonId:'',rules:[],fines:[]};backendFinesLoaded=false;
  }
  if(backendRoles.includes('admin'))await loadBackendPeopleData();
+ await loadBackendNotifications();
  backendConnected=backendReferenceLoaded&&!!settingsRes.data;
  configurePreviewSelector();
  mode=highestBackendRole(backendRoles);
@@ -837,6 +944,7 @@ async function loadPublicBackend(){
  await loadBackendMatchCenterData();
  backendTraining={seasonId:'',trainings:[],attendance:[],weighIns:[]};backendTrainingLoaded=false;
  backendFines={seasonId:'',rules:[],fines:[]};backendFinesLoaded=false;
+ backendNotifications={rows:[],recipients:[],preferences:null};backendNotificationsLoaded=false;state.notifications=[];
  backendConnected=backendReferenceLoaded&&!!settingsRes.data;
  mode='public';configurePreviewSelector();localStorage.setItem(MODE_KEY,'public');
 }
@@ -862,7 +970,7 @@ async function continueAsPublic(){
  }
 }
 function leavePublicMode(){
- guestMode=false;backendSession=null;backendProfile=null;backendRoles=[];backendPlayerAccount=null;backendConnected=false;mode='public';
+ guestMode=false;backendSession=null;backendProfile=null;backendRoles=[];backendPlayerAccount=null;backendNotifications={rows:[],recipients:[],preferences:null};backendNotificationsLoaded=false;state.notifications=[];backendConnected=false;mode='public';
  showAuthGate();showSignupMode(false);setAuthMessage('');
 }
 async function signInV3(email,password){
@@ -880,7 +988,7 @@ async function signInV3(email,password){
 }
 async function signOutV3(){
  try{await supabaseClient?.auth.signOut()}catch(e){console.warn(e)}
- guestMode=false;backendSession=null;backendProfile=null;backendRoles=[];backendPlayerAccount=null;backendPeople={profiles:[],roles:[],links:[],invitations:[]};backendPeopleLoaded=false;backendConnected=false;mode='public';
+ guestMode=false;backendSession=null;backendProfile=null;backendRoles=[];backendPlayerAccount=null;backendPeople={profiles:[],roles:[],links:[],invitations:[]};backendPeopleLoaded=false;backendNotifications={rows:[],recipients:[],preferences:null};backendNotificationsLoaded=false;state.notifications=[];backendConnected=false;mode='public';
  showAuthGate();setAuthMessage('Sessão terminada.','ok');
  const pw=$('#loginPassword');if(pw)pw.value='';
 }
@@ -1066,14 +1174,14 @@ const navDefs=[
  ]}
 ];
 const access={
- public:['dashboard','games','calendar','seriesResults','standings','team','stats','player'],
+ public:['dashboard','games','calendar','seriesResults','standings','team','stats','player','notifications'],
  member:['dashboard','games','calendar','seriesResults','standings','team','stats','player','notifications'],
  player:['dashboard','games','calendar','seriesResults','standings','team','stats','player','squad','training','weights','matchcenter','notifications'],
  captain:['dashboard','games','calendar','seriesResults','standings','team','stats','player','squad','training','weights','matchcenter','notifications','fines','fineRules'],
  staff:['dashboard','games','calendar','seriesResults','standings','team','stats','player','squad','training','weights','matchcenter','notifications','fines','fineRules'],
  admin:['dashboard','games','calendar','seriesResults','standings','team','stats','player','squad','training','weights','matchcenter','notifications','fines','fineRules','seasons','people','settings']
 };
-const can=v=>(access[mode]||access.public).includes(v);
+const can=v=>!(v==='notifications'&&guestMode)&&(access[mode]||access.public).includes(v);
 const canEdit=()=>mode==='staff'||mode==='admin';
 const canManageFines=()=>mode==='captain'||mode==='staff'||mode==='admin';
 const isAdmin=()=>mode==='admin';
@@ -1234,7 +1342,7 @@ function renderChrome(){
  $$('.nav-item').forEach(b=>b.onclick=()=>showView(b.dataset.view));
  const unread=state.notifications.filter(n=>!n.read&&notificationVisible(n)).length;$('#notificationCount').textContent=unread;$('#notificationCount').classList.toggle('hidden',!unread);
 }
-function notificationVisible(n){if(mode==='admin'||mode==='staff')return true;if(mode==='player'||mode==='captain'){if(n.audience==='player')return n.playerId===currentUser()?.playerId;return ['all','players','roster'].includes(n.audience)}if(mode==='member')return ['all','members'].includes(n.audience);return n.audience==='all'}
+function notificationVisible(n){if(n?.backendId)return !!backendSession;if(mode==='admin'||mode==='staff')return true;if(mode==='player'||mode==='captain'){if(n.audience==='player')return n.playerId===currentUser()?.playerId;return ['all','players','roster'].includes(n.audience)}if(mode==='member')return ['all','members'].includes(n.audience);return n.audience==='all'}
 function showView(v){if(!can(v)){v='dashboard'}currentView=v;$$('.view').forEach(x=>x.classList.remove('active'));$(`#view-${v}`).classList.add('active');$('#pageTitle').textContent=viewInfo[v][0];$('#pageSubtitle').textContent=viewInfo[v][1];$('#sidebar').classList.remove('open');renderChrome();renderView(v)}
 function renderView(v){({dashboard:renderDashboard,games:renderGames,matchcenter:renderMatchCenter,calendar:renderCalendar,seriesResults:renderSeriesResults,standings:renderStandings,team:renderTeamPage,stats:renderStats,player:renderPlayerProfile,squad:renderSquad,training:renderTraining,weights:renderWeights,notifications:renderNotifications,fines:renderFines,fineRules:renderFineRules,seasons:renderSeasons,people:renderPeople,settings:renderSettings}[v]||renderDashboard)()}
 
@@ -1346,21 +1454,150 @@ function openEventCreate(gameId){
  $('[data-close]').onclick=closeModal;
 }
 
-function createNotification({type,title,body,audience='all',gameId='',playerId='',trigger='manual',scheduledDate=''}){const n={id:uid('n'),createdAt:new Date().toISOString(),type,title,body,audience,gameId,playerId,trigger,scheduledDate,status:'prepared',read:false};state.notifications.push(n);return n}
-function prepareGameDayNotification(id){const g=state.games.find(x=>x.id===id);if(!g)return;createNotification({type:'game',title:'DIA DE JOGO!',body:`${gameTitle(g)} · ${fmtDate(g.date)}${g.time?` às ${g.time}`:''}${g.venue?` · ${g.venue}`:''}`,audience:'all',gameId:g.id,trigger:'game_day',scheduledDate:g.date});saveState('Notificação “DIA DE JOGO!” preparada.')}
-function prepareCallupNotification(id){const g=state.games.find(x=>x.id===id);if(!g)return;const ids=Object.entries(g.roster||{}).filter(([,r])=>r.status==='Convocado').map(([id])=>id);if(!ids.length){toast('Ainda não há jogadores convocados.');return}ids.forEach(pid=>createNotification({type:'callup',title:'CONVOCATÓRIA',body:`Estás convocado para ${gameTitle(g)} · ${fmtDate(g.date)}${g.time?` · ${g.time}`:''}.`,audience:'player',gameId:g.id,playerId:pid,trigger:'callup'}));saveState(`Convocatória preparada para ${ids.length} jogador(es).`)}
-function prepareFinalNotification(id){const g=state.games.find(x=>x.id===id);if(!g)return;createNotification({type:'final',title:'RESULTADO FINAL',body:`${gameTitle(g)} · ${scoreText(g)}`,audience:'all',gameId:g.id,trigger:'final'});saveState('Notificação de resultado final preparada.')}
+async function createNotification({type='general',title,body,audience='all_registered',gameId='',trainingId='',playerIds=[],dedupeKey='',scheduledFor=null}){
+ if(backendConnected&&backendSession){
+  const game=gameId?state.games.find(x=>x.id===gameId):null;
+  const training=trainingId?state.trainings.find(x=>x.id===trainingId):null;
+  const backendPlayerIds=(playerIds||[]).map(backendPlayerIdFromLocal).filter(Boolean);
+  return await sendBackendNotification({
+   type,title,body,audience,
+   matchBackendId:game?.backendId||null,
+   trainingBackendId:training?.backendId||null,
+   playerBackendIds:backendPlayerIds,
+   dedupeKey,
+   scheduledFor
+  });
+ }
+ const n={id:uid('n'),createdAt:new Date().toISOString(),notificationType:type,type:notificationCssType(type),title,body,audience,gameId,trainingId,scheduledFor,read:false};
+ state.notifications.push(n);return {notification_id:n.id,recipient_count:1};
+}
+async function prepareGameDayNotification(id){
+ const g=state.games.find(x=>x.id===id);if(!g)return;
+ if(!g.backendId){toast('Guarda primeiro o jogo online.');return}
+ try{
+  const r=await createNotification({
+   type:'matchday',
+   title:'DIA DE JOGO!',
+   body:`${gameTitle(g)} · ${fmtDate(g.date)}${g.time?` às ${g.time}`:''}${g.venue?` · ${g.venue}`:''}`,
+   audience:'players_members',
+   gameId:g.id,
+   dedupeKey:`matchday:${g.backendId}`,
+   scheduledFor:portugalKickoffIso(g.date,'08:00')
+  });
+  renderChrome();toast(`DIA DE JOGO programado para ${r.recipient_count||0} destinatário(s).`);
+ }catch(err){console.error(err);alert(`Não foi possível preparar a notificação.\n\n${err?.message||'Erro desconhecido'}`)}
+}
+async function prepareCallupNotification(id){
+ const g=state.games.find(x=>x.id===id);if(!g)return;
+ const ids=Object.entries(g.roster||{}).filter(([,r])=>r.status==='Convocado').map(([id])=>id);
+ if(!ids.length){toast('Ainda não há jogadores convocados.');return}
+ if(!g.backendId){toast('Guarda primeiro o jogo online.');return}
+ try{
+  const r=await createNotification({
+   type:'callup',
+   title:'CONVOCATÓRIA',
+   body:`Estás convocado para ${gameTitle(g)} · ${fmtDate(g.date)}${g.time?` · ${g.time}`:''}.`,
+   audience:'called_up',
+   gameId:g.id,
+   dedupeKey:`callup:${g.backendId}`
+  });
+  renderChrome();toast(`Convocatória enviada a ${r.recipient_count||0} jogador(es) com conta.`);
+ }catch(err){console.error(err);alert(`Não foi possível enviar a convocatória.\n\n${err?.message||'Erro desconhecido'}`)}
+}
+async function prepareFinalNotification(id){
+ const g=state.games.find(x=>x.id===id);if(!g)return;
+ if(!g.backendId){toast('Guarda primeiro o jogo online.');return}
+ try{
+  const r=await createNotification({
+   type:'result',
+   title:'RESULTADO FINAL',
+   body:`${gameTitle(g)} · ${scoreText(g)}`,
+   audience:'all_registered',
+   gameId:g.id,
+   dedupeKey:`result:${g.backendId}`
+  });
+  renderChrome();toast(`Resultado final enviado a ${r.recipient_count||0} utilizador(es).`);
+ }catch(err){console.error(err);alert(`Não foi possível enviar o resultado.\n\n${err?.message||'Erro desconhecido'}`)}
+}
 function renderNutritionTemplate(template,avg,p,g){return String(template||'').replaceAll('{{peso_medio}}',avg?avg.toFixed(1):'—').replaceAll('{{jogador}}',p?.name||'Jogador').replaceAll('{{adversario}}',g?.opponent||'').replaceAll('{{hora_jogo}}',g?.time||'').replaceAll('{{data_jogo}}',fmtDate(g?.date))}
-function prepareNutritionNotifications(id){const g=state.games.find(x=>x.id===id);if(!g)return;const ids=Object.entries(g.roster||{}).filter(([,r])=>r.status==='Convocado').map(([id])=>id);if(!ids.length){toast('Ainda não há jogadores convocados.');return}const day=addDays(g.date,-1);ids.forEach(pid=>{const avg=avgWeightLast14(pid,g.date);const p=playerById(pid);let body=`Jogo amanhã: ${gameTitle(g)}. `;body+=avg?`Peso médio das últimas 2 semanas: ${avg.toFixed(1)} kg. `:'Sem pesagens suficientes nas últimas 2 semanas. ';if(state.settings.nutritionEnabled&&state.settings.nutritionTemplate&&avg){body+=renderNutritionTemplate(state.settings.nutritionTemplate,avg,p,g)}else body+='Plano alimentar ainda por configurar pela equipa técnica.';createNotification({type:'food',title:'PLANO PRÉ-JOGO',body,audience:'player',gameId:g.id,playerId:pid,trigger:'day_before_game',scheduledDate:day})});saveState(`Plano pré-jogo preparado para ${ids.length} convocado(s).`)}
-function noticeHtml(n){return `<div class="notice-card ${esc(n.type)}"><h4>${esc(n.title)}</h4><p>${esc(n.body)}</p><div class="notice-meta"><span>${n.scheduledDate?`Programada: ${fmtDate(n.scheduledDate)}`:new Date(n.createdAt).toLocaleString('pt-PT')}</span><span>${esc(n.audience==='all'?'Jogadores + sócios':n.audience==='players'?'Jogadores':n.audience==='members'?'Sócios':n.audience==='player'?'Jogador':'Interno')}</span></div></div>`}
-
-function renderNotifications(){const rows=state.notifications.filter(notificationVisible).slice().reverse();$('#view-notifications').innerHTML=`<div class="section-head"><div><h2>Notificações</h2><p>Convocatórias, dia de jogo, resultados e plano pré-jogo.</p></div><div class="inline-actions"><button class="btn secondary" id="enableBrowserNotifications">Ativar no dispositivo</button>${canEdit()?'<button class="btn" id="customNotification">＋ Nova</button>':''}</div></div><div class="warning-strip">Nesta preview, as notificações ficam preparadas dentro da app e podes testar notificações imediatas do browser. O envio push agendado com a app fechada será ligado quando ativarmos o backend.</div><div style="height:12px"></div><div class="grid equal2">${rows.length?rows.map(noticeHtml).join(''):empty('Sem notificações','Ainda não existem mensagens preparadas.')}</div>`;$('#enableBrowserNotifications').onclick=requestNotificationPermission;$('#customNotification')&&($('#customNotification').onclick=openCustomNotification);state.notifications.forEach(n=>{if(notificationVisible(n))n.read=true});localStorage.setItem(V2_KEY,JSON.stringify(state));renderChrome()}
-async function requestNotificationPermission(){if(!('Notification'in window)){toast('Este browser não suporta notificações.');return}const p=await Notification.requestPermission();if(p==='granted'){new Notification('ADC Figueiras',{body:'Notificações ativadas neste dispositivo.',icon:'assets/icon-192.png'});toast('Notificações ativadas.')}else toast('Permissão não concedida.')}
-function openCustomNotification(){openModal('Nova notificação','Mensagem manual para a comunidade.',`<form id="notifForm"><div class="form-grid"><div class="field full"><label>Título</label><input name="title" required></div><div class="field full"><label>Mensagem</label><textarea name="body" required></textarea></div><div class="field"><label>Destinatários</label><select name="audience"><option value="all">Jogadores + sócios</option><option value="players">Jogadores</option><option value="members">Sócios</option></select></div></div><div class="form-actions"><button type="button" class="btn secondary" data-close>Cancelar</button><button class="btn">Preparar</button></div></form>`);$('#notifForm').onsubmit=e=>{e.preventDefault();createNotification({...Object.fromEntries(new FormData(e.target)),type:'system'});closeModal();saveState('Notificação preparada.')};$('[data-close]').onclick=closeModal}
+async function prepareNutritionNotifications(id){
+ const g=state.games.find(x=>x.id===id);if(!g)return;
+ const ids=Object.entries(g.roster||{}).filter(([,r])=>r.status==='Convocado').map(([id])=>id);
+ if(!ids.length){toast('Ainda não há jogadores convocados.');return}
+ if(!g.backendId){toast('Guarda primeiro o jogo online.');return}
+ const day=addDays(g.date,-1);
+ let sent=0;
+ try{
+  for(const pid of ids){
+   const p=playerById(pid),backendPid=backendPlayerIdFromLocal(pid);if(!p||!backendPid)continue;
+   const avg=avgWeightLast14(pid,g.date);
+   let body=`Jogo amanhã: ${gameTitle(g)}. `;
+   body+=avg?`Peso médio das últimas 2 semanas: ${avg.toFixed(1)} kg. `:'Sem pesagens suficientes nas últimas 2 semanas. ';
+   if(state.settings.nutritionEnabled&&state.settings.nutritionTemplate&&avg)body+=renderNutritionTemplate(state.settings.nutritionTemplate,avg,p,g);
+   else body+='Plano alimentar ainda por configurar pela equipa técnica.';
+   const r=await createNotification({
+    type:'nutrition',
+    title:'PLANO PRÉ-JOGO',
+    body,
+    audience:'player_ids',
+    gameId:g.id,
+    playerIds:[pid],
+    dedupeKey:`nutrition:${g.backendId}:${backendPid}`,
+    scheduledFor:portugalKickoffIso(day,'10:00')
+   });
+   sent+=Number(r.recipient_count||0);
+  }
+  renderChrome();toast(`Plano pré-jogo programado para ${sent} convocado(s) com conta.`);
+ }catch(err){console.error(err);alert(`Não foi possível preparar o plano pré-jogo.\n\n${err?.message||'Erro desconhecido'}`)}
+}
+async function prepareTrainingNotification(id){
+ const t=state.trainings.find(x=>x.id===id);if(!t)return;
+ if(!t.backendId){toast('Guarda primeiro o treino online.');return}
+ try{
+  const r=await createNotification({
+   type:'training',
+   title:'TREINO',
+   body:`Treino · ${fmtDate(t.date)}${t.time?` às ${t.time}`:''}${t.location?` · ${t.location}`:''}.`,
+   audience:'players',
+   trainingId:t.id,
+   dedupeKey:`training:${t.backendId}`
+  });
+  renderChrome();toast(`Aviso de treino enviado a ${r.recipient_count||0} jogador(es).`);
+ }catch(err){console.error(err);alert(`Não foi possível enviar o aviso de treino.\n\n${err?.message||'Erro desconhecido'}`)}
+}
+function noticeHtml(n){
+ const type=n.notificationType||n.type||'general';
+ const when=n.scheduledFor?`Programada: ${fmtDate(String(n.scheduledFor).slice(0,10))}`:new Date(n.createdAt).toLocaleString('pt-PT');
+ return `<div class="notice-card ${esc(n.type)} ${n.read?'':'unread'}"><div class="notice-title-row"><h4>${esc(n.title)}</h4>${n.read?'':pill('Nova','green')}</div><p>${esc(n.body)}</p><div class="notice-meta"><span>${when}</span><span>${esc(notificationTypeLabel(type))}</span></div></div>`;
+}
+function renderNotifications(){
+ if(guestMode){$('#view-notifications').innerHTML=empty('Inicia sessão','As notificações pessoais estão disponíveis para contas registadas.');return}
+ const rows=state.notifications.filter(notificationVisible).slice().reverse();
+ const prefs=currentNotificationPreferences();
+ const prefCard=backendSession?`<div class="card"><div class="card-head"><div><h3>Preferências</h3><p>Escolhe os tipos de aviso que queres receber na tua caixa de notificações.</p></div>${pill('Online','green')}</div><form id="notificationPrefs"><div class="checkboxes notification-pref-grid">${[
+  ['callup_enabled','Convocatórias'],
+  ['matchday_enabled','DIA DE JOGO!'],
+  ['training_enabled','Treinos'],
+  ['result_enabled','Resultados finais'],
+  ['nutrition_enabled','Plano pré-jogo'],
+  ['general_enabled','Mensagens gerais']
+ ].map(([k,l])=>`<label class="check-pill"><input type="checkbox" name="${k}" ${prefs[k]!==false?'checked':''}>${l}</label>`).join('')}</div><div class="form-actions"><button class="btn" id="saveNotificationPrefs">Guardar preferências</button></div></form></div><div style="height:12px"></div>`:'';
+ $('#view-notifications').innerHTML=`<div class="section-head"><div><h2>Notificações</h2><p>Convocatórias, treinos, dia de jogo, resultados e plano pré-jogo.</p></div><div class="inline-actions"><button class="btn secondary" id="refreshNotifications">Atualizar</button><button class="btn secondary" id="enableBrowserNotifications">Ativar neste dispositivo</button>${canEdit()?'<button class="btn" id="customNotification">＋ Nova</button>':''}</div></div><div class="info-strip">As notificações desta página já ficam guardadas no Supabase e acompanham a tua conta entre dispositivos. O push com a app fechada será ligado na fase seguinte.</div><div style="height:12px"></div>${prefCard}<div class="grid equal2">${rows.length?rows.map(noticeHtml).join(''):empty('Sem notificações','Ainda não tens mensagens disponíveis.')}</div>`;
+ $('#enableBrowserNotifications').onclick=requestNotificationPermission;
+ $('#refreshNotifications').onclick=async()=>{try{await loadBackendNotifications();renderNotifications();renderChrome();toast('Notificações atualizadas.')}catch(err){console.error(err);alert(`Não foi possível atualizar as notificações.\n\n${err?.message||'Erro desconhecido'}`)}};
+ $('#customNotification')&&($('#customNotification').onclick=openCustomNotification);
+ $('#notificationPrefs')&&($('#notificationPrefs').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),payload={};Object.keys(NOTIFICATION_PREF_DEFAULTS).forEach(k=>payload[k]=fd.get(k)==='on');const b=$('#saveNotificationPrefs');b.disabled=true;b.textContent='A guardar…';try{await saveBackendNotificationPreferences(payload);toast('Preferências guardadas.');renderNotifications()}catch(err){console.error(err);alert(`Não foi possível guardar as preferências.\n\n${err?.message||'Erro desconhecido'}`);b.disabled=false;b.textContent='Guardar preferências'}});
+ markBackendNotificationsRead().catch(console.error);
+}
+async function requestNotificationPermission(){if(!('Notification'in window)){toast('Este browser não suporta notificações.');return}const p=await Notification.requestPermission();if(p==='granted'){new Notification('ADC Figueiras',{body:'Permissão do dispositivo ativada. O push em segundo plano será configurado na próxima fase.',icon:'assets/icon-192.png'});toast('Permissão ativada neste dispositivo.')}else toast('Permissão não concedida.')}
+function openCustomNotification(){
+ openModal('Nova notificação','Mensagem manual guardada online.',`<form id="notifForm"><div class="form-grid"><div class="field full"><label>Título</label><input name="title" required></div><div class="field full"><label>Mensagem</label><textarea name="body" required></textarea></div><div class="field"><label>Destinatários</label><select name="audience"><option value="all_registered">Todos os utilizadores registados</option><option value="players_members">Jogadores + Sócios</option><option value="players">Jogadores</option><option value="members">Sócios</option></select></div></div><div class="form-actions"><button type="button" class="btn secondary" data-close>Cancelar</button><button class="btn" id="sendCustomNotification">Enviar</button></div></form>`);
+ $('#notifForm').onsubmit=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target)),b=$('#sendCustomNotification');b.disabled=true;b.textContent='A enviar…';try{const r=await createNotification({type:'general',title:d.title,body:d.body,audience:d.audience});closeModal();renderChrome();renderNotifications();toast(`Notificação enviada a ${r.recipient_count||0} utilizador(es).`)}catch(err){console.error(err);alert(`Não foi possível enviar a notificação.\n\n${err?.message||'Erro desconhecido'}`);b.disabled=false;b.textContent='Enviar'}};$('[data-close]').onclick=closeModal;
+}
 
 function renderTraining(){const rows=[...seasonTrainings()].sort((a,b)=>dateTimeOf(b.date,b.time)-dateTimeOf(a.date,a.time));$('#view-training').innerHTML=`<div class="section-head"><div><h2>Treinos</h2><p>Presenças e pesagens guardadas online. Os atletas não precisam confirmar nem justificar na app.</p></div>${canEdit()?'<button class="btn" id="addTraining">＋ Novo treino</button>':''}</div>${rows.length?`<div class="table-wrap"><table><thead><tr><th>Data</th><th>Local</th><th>Presenças</th><th>Pesagens</th><th></th></tr></thead><tbody>${rows.map(t=>{const entries=Object.values(t.entries||{});const pres=entries.filter(e=>e.status==='Presente'||e.status==='Atrasado').length;const ws=entries.filter(e=>e.pre||e.post).length;return `<tr><td><strong>${fmtDate(t.date)}</strong><div class="meta">${esc(t.time||'')}</div></td><td>${esc(t.location||'—')}</td><td>${pres}/${state.players.length}</td><td>${ws}</td><td><div class="inline-actions"><button class="btn secondary sm open-training" data-id="${t.id}">${canEdit()?'Gerir':'Ver'}</button>${canEdit()?`<button class="btn danger sm delete-training" data-id="${t.id}">Eliminar</button>`:''}</div></td></tr>`}).join('')}</tbody></table></div>`:empty('Ainda não existem treinos','Cria o primeiro treino da época.')}`;$('#addTraining')&&($('#addTraining').onclick=openTrainingCreate);$$('.open-training').forEach(b=>b.onclick=()=>openTrainingManage(b.dataset.id));$$('.delete-training').forEach(b=>b.onclick=async()=>{const t=state.trainings.find(x=>x.id===b.dataset.id);if(!t||!confirm('Eliminar este treino?'))return;const btn=b;btn.disabled=true;btn.textContent='A eliminar…';try{if(backendConnected&&t.backendId)await deleteBackendTraining(t);state.trainings=state.trainings.filter(x=>x.id!==t.id);saveState('Treino eliminado do Supabase.')}catch(err){console.error(err);alert(`Não foi possível eliminar o treino.\n\n${err?.message||'Erro desconhecido'}`);btn.disabled=false;btn.textContent='Eliminar'}})}
 function openTrainingCreate(){openModal('Novo treino','Sessão de treino da época ativa.',`<form id="trainingForm"><div class="form-grid"><div class="field"><label>Data *</label><input type="date" name="date" value="${nowKey()}" required></div><div class="field"><label>Hora</label><input type="time" name="time" value="21:30"></div><div class="field full"><label>Local</label><input name="location"></div><div class="field full"><label>Notas internas</label><textarea name="notes"></textarea></div></div><div class="form-actions"><button type="button" class="btn secondary" data-close>Cancelar</button><button class="btn" id="createTrainingBtn">Criar treino</button></div></form>`);$('#trainingForm').onsubmit=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target));const t={id:uid('t'),seasonId:state.settings.activeSeasonId,...d,status:'scheduled',entries:{}};state.trainings.push(t);const btn=$('#createTrainingBtn');if(btn){btn.disabled=true;btn.textContent='A criar…'}try{if(backendConnected)await saveBackendTraining(t);closeModal();saveState('Treino criado no Supabase.');openTrainingManage(t.id)}catch(err){console.error(err);state.trainings=state.trainings.filter(x=>x!==t);alert(`Não foi possível criar o treino.\n\n${err?.message||'Erro desconhecido'}`);if(btn){btn.disabled=false;btn.textContent='Criar treino'}}};$('[data-close]').onclick=closeModal}
-function openTrainingManage(id){const t=state.trainings.find(x=>x.id===id);if(!t)return;const editable=canEdit();const rows=state.players.map(p=>{const e=t.entries?.[p.id]||{};const a=Number(e.pre),b=Number(e.post),delta=a&&b?b-a:null,pct=a&&b?(b-a)/a*100:null;return `<div class="training-row" data-player="${p.id}">${playerHtml(p)}<select class="att-status" ${editable?'':'disabled'}><option value="">— Estado —</option>${['Presente','Atrasado','Falta','Lesionado'].map(s=>`<option ${e.status===s?'selected':''}>${s}</option>`).join('')}</select><input class="w-pre" type="number" step="0.1" min="20.1" max="249.9" placeholder="Antes kg" value="${esc(e.pre||'')}" ${editable?'':'disabled'}><input class="w-post" type="number" step="0.1" min="20.1" max="249.9" placeholder="Depois kg" value="${esc(e.post||'')}" ${editable?'':'disabled'}><div class="delta">${delta===null?'—':`${delta>0?'+':''}${delta.toFixed(1)} kg<br><span class="muted">${pct.toFixed(2)}%</span>`}</div></div>`}).join('');openModal(`Treino · ${fmtDate(t.date)}`,`${t.time||''}${t.location?` · ${t.location}`:''}`,`${editable?'<div class="info-strip">A equipa técnica regista presenças e pesos. As alterações são guardadas no Supabase.</div><div style="height:10px"></div>':''}<div class="training-roster">${rows}</div><div class="form-actions"><button class="btn secondary" data-close>Fechar</button>${editable?'<button class="btn" id="saveTraining">Guardar</button>':''}</div>`,true);$('#saveTraining')&&($('#saveTraining').onclick=async()=>{const oldEntries=JSON.parse(JSON.stringify(t.entries||{})),oldFines=JSON.parse(JSON.stringify(state.fines||[]));t.entries=t.entries||{};$$('.training-row',$('#modalBody')).forEach(r=>{t.entries[r.dataset.player]={status:$('.att-status',r).value,pre:$('.w-pre',r).value,post:$('.w-post',r).value}});syncTrainingLateFines(t);const btn=$('#saveTraining');btn.disabled=true;btn.textContent='A guardar…';try{if(backendConnected)await saveBackendTraining(t);closeModal();saveState('Treino, presenças e pesagens guardados online.')}catch(err){console.error(err);t.entries=oldEntries;state.fines=oldFines;alert(`Não foi possível guardar o treino no Supabase.\n\n${err?.message||'Erro desconhecido'}`);btn.disabled=false;btn.textContent='Guardar'}});$('[data-close]').onclick=closeModal}
+function openTrainingManage(id){const t=state.trainings.find(x=>x.id===id);if(!t)return;const editable=canEdit();const rows=state.players.map(p=>{const e=t.entries?.[p.id]||{};const a=Number(e.pre),b=Number(e.post),delta=a&&b?b-a:null,pct=a&&b?(b-a)/a*100:null;return `<div class="training-row" data-player="${p.id}">${playerHtml(p)}<select class="att-status" ${editable?'':'disabled'}><option value="">— Estado —</option>${['Presente','Atrasado','Falta','Lesionado'].map(s=>`<option ${e.status===s?'selected':''}>${s}</option>`).join('')}</select><input class="w-pre" type="number" step="0.1" min="20.1" max="249.9" placeholder="Antes kg" value="${esc(e.pre||'')}" ${editable?'':'disabled'}><input class="w-post" type="number" step="0.1" min="20.1" max="249.9" placeholder="Depois kg" value="${esc(e.post||'')}" ${editable?'':'disabled'}><div class="delta">${delta===null?'—':`${delta>0?'+':''}${delta.toFixed(1)} kg<br><span class="muted">${pct.toFixed(2)}%</span>`}</div></div>`}).join('');openModal(`Treino · ${fmtDate(t.date)}`,`${t.time||''}${t.location?` · ${t.location}`:''}`,`${editable?'<div class="info-strip">A equipa técnica regista presenças e pesos. As alterações são guardadas no Supabase.</div><div style="height:10px"></div>':''}<div class="training-roster">${rows}</div><div class="form-actions"><button class="btn secondary" data-close>Fechar</button>${editable?'<button class="btn secondary" id="notifyTraining">Avisar jogadores</button><button class="btn" id="saveTraining">Guardar</button>':''}</div>`,true);$('#saveTraining')&&($('#saveTraining').onclick=async()=>{const oldEntries=JSON.parse(JSON.stringify(t.entries||{})),oldFines=JSON.parse(JSON.stringify(state.fines||[]));t.entries=t.entries||{};$$('.training-row',$('#modalBody')).forEach(r=>{t.entries[r.dataset.player]={status:$('.att-status',r).value,pre:$('.w-pre',r).value,post:$('.w-post',r).value}});syncTrainingLateFines(t);const btn=$('#saveTraining');btn.disabled=true;btn.textContent='A guardar…';try{if(backendConnected)await saveBackendTraining(t);closeModal();saveState('Treino, presenças e pesagens guardados online.')}catch(err){console.error(err);t.entries=oldEntries;state.fines=oldFines;alert(`Não foi possível guardar o treino no Supabase.\n\n${err?.message||'Erro desconhecido'}`);btn.disabled=false;btn.textContent='Guardar'}});$('#notifyTraining')&&($('#notifyTraining').onclick=()=>prepareTrainingNotification(t.id));$('[data-close]').onclick=closeModal}
 
 function renderWeights(){const ref=state.settings.weightReference;const cards=state.players.map(p=>{const l=latestWeight(p.id);const avg=avgWeightLast14(p.id,nowKey());return `<div class="weight-card"><div>${playerHtml(p)}</div><div><div class="weight-label">Último pré</div><div class="weight-number">${l?.pre?`${l.pre.toFixed(1)} kg`:'—'}</div></div><div><div class="weight-label">Último pós</div><div class="weight-number">${l?.post?`${l.post.toFixed(1)} kg`:'—'}</div></div><div><div class="weight-label">Média 2 semanas</div><div class="weight-number">${avg?`${avg.toFixed(1)} kg`:'—'}</div></div></div>`}).join('');$('#view-weights').innerHTML=`<div class="section-head"><div><h2>Pesagens do plantel</h2><p>Os atletas podem consultar as próprias pesagens e as dos colegas.</p></div>${canEdit()?`<span class="pill blue">Referência plano: ${ref==='pre'?'pré-treino':ref==='post'?'pós-treino':'média pré/pós'}</span>`:''}</div><div class="warning-strip">A visibilidade das pesagens está configurada de acordo com a decisão atual do clube. Antes de abrir a plataforma a todos, convém definir formalmente a política de acesso a estes dados.</div><div style="height:12px"></div><div class="grid">${cards||empty('Sem jogadores')}</div>`}
 
