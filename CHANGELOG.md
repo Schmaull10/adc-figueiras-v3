@@ -1,3 +1,11 @@
+# Hotfix V1.0 — Estado SMTP no diagnóstico
+
+- Corrigido o cartão **SMTP de produção** nas Definições: passa a refletir a validação já concluída dos fluxos SMTP/Auth.
+- O estado global da release apresenta **Produção pronta** quando todos os restantes checks estão OK.
+- Sem alterações funcionais, de dados ou de Supabase.
+
+---
+
 # V1.0 — Produção
 
 Versão de produção baseada na V3.16 funcionalmente aprovada.

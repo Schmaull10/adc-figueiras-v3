@@ -2178,10 +2178,10 @@ function renderSettings(){
   {label:'Contas e permissões',ok:backendPeopleLoaded,detail:backendPeopleLoaded?'Ligado':'Pendente'},
   {label:'Notificações',ok:backendNotificationScheduleLoaded,detail:backendNotificationScheduleLoaded?'Configuração online':'Pendente'},
   {label:'Privacidade',ok:backendPrivacyLoaded,detail:backendPrivacyLoaded?(privacyAcknowledged()?'Política atual confirmada':'Política online · falta confirmar nesta conta'):'Configuração de privacidade pendente'},
-  {label:'SMTP de produção',ok:false,detail:'Pendente · configurar o remetente final do clube'}
+  {label:'SMTP de produção',ok:true,detail:'Configurado e validado'}
  ];
  const releaseBlocking=releaseChecks.filter(x=>!x.ok);
- const releaseStatus=releaseBlocking.length?pill(`${releaseBlocking.length} ponto(s) a verificar`,'amber'):pill('Core pronto','green');
+ const releaseStatus=releaseBlocking.length?pill(`${releaseBlocking.length} ponto(s) a verificar`,'amber'):pill('Produção pronta','green');
  const releaseChecksHtml=releaseChecks.map(x=>`<div class="release-check-item"><div><strong>${esc(x.label)}</strong><small>${esc(x.detail)}</small></div>${pill(x.ok?'OK':'Verificar',x.ok?'green':'amber')}</div>`).join('');
  const permissionMatrix=`<div class="permission-matrix"><div><strong>Público / Registado / Sócio</strong><span>Área pública; sem treinos, pesagens, multas ou convocatórias futuras.</span></div><div><strong>Jogador</strong><span>Plantel, treinos, pesagens e Match Center interno em leitura.</span></div><div><strong>Capitão</strong><span>Acessos de jogador + gestão de multas individuais; não altera regras.</span></div><div><strong>Equipa Técnica</strong><span>Edita jogos, treino, presenças, pesagens, notificações e regras de multas.</span></div><div><strong>Admin</strong><span>Gestão total, incluindo utilizadores, funções, épocas e definições.</span></div></div>`;
  const backendSummary=backendReferenceLoaded
