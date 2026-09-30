@@ -74,3 +74,6 @@
 /* V3.16 · Pesagens de jogo */
 .match-weight-roster{display:grid;gap:7px}.match-weight-row{display:grid;grid-template-columns:minmax(160px,1.4fr) 120px 120px 105px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid #edf2ee}.match-weight-row:last-child{border-bottom:0}.match-weight-row input{width:100%;padding:8px;border:1px solid var(--line);border-radius:9px}.match-weight-table td,.match-weight-table th{white-space:nowrap}.match-weight-table td:first-child,.match-weight-table th:first-child{white-space:normal}
 @media(max-width:780px){.match-weight-row{grid-template-columns:1fr 1fr 1fr}.match-weight-row .player{grid-column:1/-1}.match-weight-row .delta{text-align:left}.match-weight-table{min-width:620px}}
+
+
+/* V1.0 · Production */

@@ -1,21 +1,31 @@
-# ADC Figueiras V3.16 — Pesagens de jogo + Auto-golo
+# ADC Figueiras V1.0 — Produção
 
-Esta build parte diretamente da **V3.15 Final Candidate**. Não limpa nem troca a chave de armazenamento local.
+Versão de produção baseada na V3.16 aprovada. Não limpa nem altera a chave de armazenamento local e não requer nova migração de base de dados.
 
-## Antes de publicar
-1. Faz um backup na app atual: **Definições → Exportar backup JSON**.
-2. No Supabase, abre o **SQL Editor**.
-3. Executa o ficheiro `SUPABASE_MIGRATION_V3_16.sql` completo.
-4. Só depois substitui os ficheiros do GitHub Pages pelos desta pasta.
-5. Aguarda a publicação e faz `Ctrl+F5`.
-6. Em Definições confirma a versão `v3.16-matchday-weights-own-goal`.
+## Estado validado antes do lançamento
+- Match Center, convocatórias, 5 inicial, acontecimentos, auto-golo e pesagens de jogo validados.
+- Treinos, presenças, pesagens e multas online validados.
+- Calendário, resultados manuais e classificação online validados.
+- Contas, funções e acessos pré-atribuídos validados.
+- Web Push e Cron de notificações ativos.
+- SMTP próprio configurado e templates de email aplicados.
+- Recuperação de palavra-passe e criação/confirmação de conta nova testadas com sucesso.
+- Acesso anónimo às RPCs públicas SECURITY DEFINER removido; utilizadores autenticados mantêm o acesso necessário, sujeito às validações internas de permissões.
 
-## Teste recomendado
-- Abrir um jogo com convocados.
-- Match Center → **Gerir pesagens** → preencher pré/pós de 1 ou 2 jogadores → guardar.
-- Abrir a ficha desses jogadores e confirmar que os novos valores entram na mesma evolução de peso.
-- Match Center → **+ Acontecimento** → Golo → ativar **Auto-golo adversário** → guardar.
-- Confirmar que aparece na cronologia sem nome de jogador e que nenhum jogador recebe esse golo nas Estatísticas.
+## Publicação no GitHub Pages
+1. Mantém guardado o snapshot de release que acabaste de exportar.
+2. Substitui os ficheiros da versão publicada pelos ficheiros desta pasta.
+3. Faz commit no GitHub.
+4. Aguarda a publicação do GitHub Pages.
+5. Abre a aplicação e faz `Ctrl+F5` no primeiro acesso.
+6. Em **Definições**, confirma que aparece `V1.0 · Produção` e, em Diagnóstico, `v1.0`.
+7. Confirma rapidamente login, Início e abertura de um jogo no Match Center.
+
+## Compatibilidade
+- Mantida a chave de localStorage usada nas versões anteriores.
+- Mantido o mesmo projeto Supabase e os mesmos dados.
+- Mantida a Publishable Key no frontend.
+- O ficheiro `SUPABASE_MIGRATION_V3_16.sql` é mantido apenas como referência histórica da migração que já foi aplicada. Não o voltes a executar para publicar a V1.0.
 
 ## Segurança
-A build continua a usar apenas a Publishable Key no frontend. Não colocar `service_role` nem outras chaves secretas nos ficheiros da app.
+Nunca colocar `service_role`, palavras-passe SMTP ou outras chaves secretas nos ficheiros da aplicação ou no repositório público.

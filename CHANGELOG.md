@@ -1,3 +1,22 @@
+# V1.0 — Produção
+
+Versão de produção baseada na V3.16 funcionalmente aprovada.
+
+## Lançamento
+- Identificação visual e diagnóstico atualizados para V1.0.
+- SMTP próprio do ADC Figueiras configurado no Supabase Auth.
+- Templates de email personalizados aplicados.
+- Testados com sucesso os fluxos de recuperação de palavra-passe e criação/confirmação de conta nova.
+- Removida a permissão `EXECUTE` do role `anon` nas 9 RPCs públicas `SECURITY DEFINER`; o acesso autenticado necessário à aplicação foi mantido com validações internas de permissões.
+- Snapshot de release guardado antes da publicação.
+- Service worker/cache atualizado para V1.0.
+
+## Funcionalidades
+- Sem alterações funcionais relativamente à V3.16 aprovada.
+- Mantidos Match Center, pesagens de jogo, auto-golo, treinos, multas, resultados/classificação, acessos, notificações Push e restantes funcionalidades existentes.
+
+---
+
 # V3.16 — Pesagens de jogo + Auto-golo
 
 Base: V3.15 Final Candidate.
