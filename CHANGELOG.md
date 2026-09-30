@@ -1,3 +1,26 @@
+# V3.16 — Pesagens de jogo + Auto-golo
+
+Base: V3.15 Final Candidate.
+
+## Match Center
+- Nova área de pesagens para convocados: peso pré-jogo, pós-jogo e diferença automática.
+- Indicador “Pesagens X/Y registadas”.
+- Pesagens de jogo entram na mesma evolução cronológica das pesagens de treino, sem separar visualmente a origem na ficha do jogador.
+- Nova opção “Auto-golo adversário” ao adicionar um golo.
+- Auto-golo aparece na cronologia, não é atribuído a nenhum jogador e não entra nas estatísticas individuais.
+
+## Supabase
+- Incluído `SUPABASE_MIGRATION_V3_16.sql`.
+- Nova tabela `match_weigh_ins` com RLS para utilizadores internos.
+- `match_events` passa a suportar `is_own_goal` e jogador nulo quando se trata de auto-golo.
+
+## Compatibilidade
+- Mantida a chave de localStorage da V3.15.
+- Estado antigo é normalizado sem reset de dados.
+- Service worker/cache atualizado para esta build.
+
+---
+
 # V3.15 — Final Candidate
 
 Build final antes da configuração SMTP e do lançamento 1.0.

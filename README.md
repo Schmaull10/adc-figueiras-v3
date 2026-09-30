@@ -1,24 +1,21 @@
-# ADC Figueiras V3.15 — Final Candidate
+# ADC Figueiras V3.16 — Pesagens de jogo + Auto-golo
 
-Esta é a última build candidata antes da ADC Figueiras 1.0.
+Esta build parte diretamente da **V3.15 Final Candidate**. Não limpa nem troca a chave de armazenamento local.
 
-## Ordem recomendada
-1. Executar a migração SQL V3.15 fornecida na conversa.
-2. Publicar todos os ficheiros desta pasta no GitHub Pages.
-3. Confirmar em Definições → Diagnóstico: `v3.15-final-candidate`.
-4. Em Definições, executar `Auditoria final`.
-5. Usar `Limpar notificações de teste`.
-6. Exportar `Snapshot de release` e guardar o JSON num local seguro.
-7. Configurar já os templates de email no Supabase; isto não exige SMTP próprio.
-8. Quando existir acesso ao email final do clube, configurar SMTP.
-9. Criar uma conta nova do zero, confirmar email e testar recuperação de password.
-10. Se tudo passar, publicar a versão 1.0.
+## Antes de publicar
+1. Faz um backup na app atual: **Definições → Exportar backup JSON**.
+2. No Supabase, abre o **SQL Editor**.
+3. Executa o ficheiro `SUPABASE_MIGRATION_V3_16.sql` completo.
+4. Só depois substitui os ficheiros do GitHub Pages pelos desta pasta.
+5. Aguarda a publicação e faz `Ctrl+F5`.
+6. Em Definições confirma a versão `v3.16-matchday-weights-own-goal`.
 
-## Snapshot de release
-O snapshot exportado pela app inclui dados funcionais/configuração do backend e o estado local da aplicação. Não inclui passwords, secrets do Supabase, chaves VAPID privadas nem credenciais SMTP. É um snapshot funcional de release, não substitui um backup integral administrado da base de dados.
+## Teste recomendado
+- Abrir um jogo com convocados.
+- Match Center → **Gerir pesagens** → preencher pré/pós de 1 ou 2 jogadores → guardar.
+- Abrir a ficha desses jogadores e confirmar que os novos valores entram na mesma evolução de peso.
+- Match Center → **+ Acontecimento** → Golo → ativar **Auto-golo adversário** → guardar.
+- Confirmar que aparece na cronologia sem nome de jogador e que nenhum jogador recebe esse golo nas Estatísticas.
 
-## Limpeza de testes
-A rotina V3.15 elimina apenas notificações com títulos/corpos de teste conhecidos usados durante a validação do Push Automático. Não elimina subscrições push nem notificações normais.
-
-## SMTP
-O SMTP continua deliberadamente pendente. Os templates podem ser preparados antes de existir acesso a `adcf2015@gmail.com`.
+## Segurança
+A build continua a usar apenas a Publishable Key no frontend. Não colocar `service_role` nem outras chaves secretas nos ficheiros da app.
