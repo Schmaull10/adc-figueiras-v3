@@ -4,7 +4,7 @@ const V2_KEY='adc-figueiras-team-manager-v3-dev';
 const V1_KEY='adc-figueiras-team-manager-v3-legacy-unused';
 const MODE_KEY='adc-figueiras-v3-preview-mode';
 const AUTO_BACKUP_KEY='adc-figueiras-team-manager-v3-autobackup';
-const APP_VERSION='1.0';
+const APP_VERSION='1.1';
 const PRIVACY_POLICY_VERSION='2026-09-29-v1';
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -58,6 +58,7 @@ let passwordRecoveryMode=false;
 let authStateSubscription=null;
 const PUSH_ONBOARDING_KEY_PREFIX='adc-figueiras-push-onboarding-v1:';
 const FIRST_ACCESS_KEY_PREFIX='adc-figueiras-first-access-v1:';
+const PENDING_CONFIRM_EMAIL_KEY='adc-figueiras-pending-confirm-email-v1';
 
 const roleRank=['public','member','player','captain','staff','admin'];
 function highestBackendRole(roles=[]){
@@ -1173,30 +1174,41 @@ async function loadBackendIdentity(session){
 }
 function configurePreviewSelector(){
  const sel=$('#previewMode');if(!sel)return;
- const all=[['admin','Vista Admin'],['staff','Vista Equipa técnica'],['captain','Vista Capitão'],['player','Vista Jogador'],['member','Vista Sócio'],['public','Vista Pública']];
- let allowed;
- if(backendRoles.includes('admin'))allowed=all;
- else {
-  const owned=new Set(backendRoles);
-  allowed=all.filter(([r])=>owned.has(r));
-  if(!allowed.length)allowed=[['public','Vista Pública']];
+ const isAdmin=!!backendSession&&backendRoles.includes('admin')&&!guestMode;
+ sel.classList.toggle('hidden',!isAdmin);
+ if(!isAdmin){
+  mode=guestMode?'public':highestBackendRole(backendRoles);
+  sel.innerHTML='';
+  return;
  }
- sel.innerHTML=allowed.map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
- sel.title=backendRoles.includes('admin')?'Pré-visualizar permissões':'Função ativa';
+ const all=[['admin','Vista Admin'],['staff','Vista Equipa técnica'],['captain','Vista Capitão'],['player','Vista Jogador'],['member','Vista Sócio'],['public','Vista Pública']];
+ sel.innerHTML=all.map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
+ sel.title='Pré-visualizar permissões';
 }
-function authRedirectUrl(){
+function authRedirectUrl(flow=''){
  try{
   const url=new URL(window.location.href);
   url.search='';url.hash='';
+  if(flow)url.searchParams.set('auth_flow',flow);
   return url.toString();
- }catch{return window.location.href.split('#')[0].split('?')[0]}
+ }catch{
+  const base=window.location.href.split('#')[0].split('?')[0];
+  return flow?`${base}?auth_flow=${encodeURIComponent(flow)}`:base;
+ }
 }
-function authUrlSignalsRecovery(raw=window.location.href){
+function authUrlFlow(raw=window.location.href){
  try{
   const url=new URL(raw);
   const hash=new URLSearchParams(String(url.hash||'').replace(/^#/,''));
-  return hash.get('type')==='recovery'||url.searchParams.get('type')==='recovery';
- }catch{return false}
+  return hash.get('auth_flow')||url.searchParams.get('auth_flow')||hash.get('type')||url.searchParams.get('type')||'';
+ }catch{return ''}
+}
+function authUrlSignalsRecovery(raw=window.location.href){
+ return authUrlFlow(raw)==='recovery';
+}
+function authErrorIsExpiredOrInvalid(raw=''){
+ const msg=String(raw||'').toLowerCase();
+ return msg.includes('expired')||msg.includes('invalid')||msg.includes('otp_expired')||msg.includes('token has expired');
 }
 function authUrlError(raw=window.location.href){
  try{
@@ -1218,18 +1230,19 @@ function friendlyAuthError(err){
  if(msg.includes('email not confirmed'))return 'Ainda tens de confirmar o teu email antes de iniciar sessão.';
  if(msg.includes('password should be at least'))return 'A palavra-passe não cumpre o tamanho mínimo exigido.';
  if(msg.includes('rate limit')||msg.includes('too many requests'))return 'Foram feitos demasiados pedidos. Aguarda um pouco e tenta novamente.';
- if(msg.includes('expired')||msg.includes('otp_expired'))return 'Este link expirou. Pede um novo link de recuperação.';
+ if(msg.includes('expired')||msg.includes('otp_expired'))return 'Este link expirou ou já não é válido.';
  return raw;
 }
 function showAuthMode(mode='login',clearMessage=true){
- const forms={login:$('#loginForm'),signup:$('#signupForm'),forgot:$('#forgotPasswordForm'),recovery:$('#recoveryPasswordForm')};
+ const forms={login:$('#loginForm'),signup:$('#signupForm'),forgot:$('#forgotPasswordForm'),recovery:$('#recoveryPasswordForm'),resend:$('#resendConfirmationForm')};
  Object.entries(forms).forEach(([key,el])=>el?.classList.toggle('hidden',key!==mode));
  const title=$('#authTitle'),copy=$('#authDescription');
  const texts={
   login:['Entrar','Entra com a tua conta ADC Figueiras.'],
   signup:['Criar conta','Qualquer pessoa pode criar conta. Se tiveres um convite, os acessos atribuídos pelo clube são aplicados automaticamente.'],
   forgot:['Recuperar acesso','Vamos enviar um link seguro para o email associado à tua conta.'],
-  recovery:['Nova palavra-passe','Escolhe uma nova palavra-passe para voltares a aceder à tua conta.']
+  recovery:['Nova palavra-passe','Escolhe uma nova palavra-passe para voltares a aceder à tua conta.'],
+  resend:['Link de confirmação expirado','Este link já não é válido. Pede um novo email de confirmação para terminares a criação da conta.']
  };
  const [heading,description]=texts[mode]||texts.login;
  if(title)title.textContent=heading;if(copy)copy.textContent=description;
@@ -1246,12 +1259,38 @@ async function requestPasswordReset(email){
  if(!cleanEmail){setAuthMessage('Indica o teu email.','error');return}
  const btn=$('#forgotPasswordSubmitBtn');if(btn){btn.disabled=true;btn.textContent='A enviar…'}setAuthMessage('');
  try{
-  const {error}=await supabaseClient.auth.resetPasswordForEmail(cleanEmail,{redirectTo:authRedirectUrl()});
+  const {error}=await supabaseClient.auth.resetPasswordForEmail(cleanEmail,{redirectTo:authRedirectUrl('recovery')});
   if(error)throw error;
   setAuthMessage('Se existir uma conta com esse email, enviámos um link de recuperação. Verifica também o spam.','ok');
  }catch(err){console.error(err);setAuthMessage(friendlyAuthError(err),'error')}
  finally{if(btn){btn.disabled=false;btn.textContent='Enviar link de recuperação'}}
 }
+function showExpiredSignupConfirmation(){
+ const remembered=String(localStorage.getItem(PENDING_CONFIRM_EMAIL_KEY)||'').trim();
+ const target=$('#resendConfirmationEmail');if(target&&remembered)target.value=remembered;
+ showAuthGate();showAuthMode('resend',false);
+ setAuthMessage('O link de confirmação expirou ou já não é válido. Podes pedir um novo abaixo.','error');
+}
+async function resendSignupConfirmation(email){
+ const cleanEmail=String(email||'').trim().toLowerCase();
+ if(!cleanEmail){setAuthMessage('Indica o email usado para criar a conta.','error');return}
+ const btn=$('#resendConfirmationBtn');if(btn){btn.disabled=true;btn.textContent='A reenviar…'}setAuthMessage('');
+ try{
+  const {error}=await supabaseClient.auth.resend({type:'signup',email:cleanEmail,options:{emailRedirectTo:authRedirectUrl('signup')}});
+  if(error)throw error;
+  localStorage.setItem(PENDING_CONFIRM_EMAIL_KEY,cleanEmail);
+  setAuthMessage('Enviámos um novo email de confirmação. Usa apenas o link mais recente e verifica também o spam.','ok');
+ }catch(err){console.error(err);setAuthMessage(friendlyAuthError(err),'error')}
+ finally{if(btn){btn.disabled=false;btn.textContent='Reenviar email de confirmação'}}
+}
+function repeatedSignupResponse(data){
+ const user=data?.user;
+ if(!user||data?.session)return false;
+ if(Array.isArray(user.identities)&&user.identities.length===0)return true;
+ const createdAt=Date.parse(user.created_at||'');
+ return Number.isFinite(createdAt)&&(Date.now()-createdAt)>30000;
+}
+
 async function completePasswordRecovery(password,password2){
  if(String(password||'').length<8){setAuthMessage('A palavra-passe deve ter pelo menos 8 caracteres.','error');return}
  if(password!==password2){setAuthMessage('As palavras-passe não coincidem.','error');return}
@@ -1276,13 +1315,26 @@ async function signUpV3(name,email,memberNumber,password,password2){
   const {data,error}=await supabaseClient.auth.signUp({
    email,
    password,
-   options:{emailRedirectTo:authRedirectUrl(),data:{display_name:String(name||'').trim(),member_number:cleanMember||null}}
+   options:{emailRedirectTo:authRedirectUrl('signup'),data:{display_name:String(name||'').trim(),member_number:cleanMember||null}}
   });
   if(error)throw error;
-  if(data.session){await loadIdentityWithOneRetry(data.session);showAuthenticatedApp();renderChrome();showView('dashboard');queuePostLoginOnboarding();return}
+  if(repeatedSignupResponse(data)){
+   showSignupMode(false);const em=$('#loginEmail');if(em)em.value=email;
+   setAuthMessage('Não foi possível criar uma nova conta com este email. Se já tens conta, inicia sessão ou recupera a palavra-passe.','error');
+   return;
+  }
+  localStorage.setItem(PENDING_CONFIRM_EMAIL_KEY,email);
+  if(data.session){localStorage.removeItem(PENDING_CONFIRM_EMAIL_KEY);await loadIdentityWithOneRetry(data.session);showAuthenticatedApp();renderChrome();showView('dashboard');queuePostLoginOnboarding();return}
   showSignupMode(false);const em=$('#loginEmail');if(em)em.value=email;
   setAuthMessage(cleanMember?'Conta criada. Confirma o email que recebeste. O teu número de sócio ficará pendente de validação pelo clube.':'Conta criada. Confirma o email que recebeste e depois inicia sessão.','ok');
- }catch(err){console.error(err);setAuthMessage(friendlyAuthError(err)||'Não foi possível criar a conta.','error')}finally{if(btn){btn.disabled=false;btn.textContent='Criar conta'}}
+ }catch(err){
+  console.error(err);
+  const code=String(err?.code||'').toLowerCase(),msg=String(err?.message||'').toLowerCase();
+  if(code==='email_exists'||code==='user_already_exists'||msg.includes('already registered')){
+   showSignupMode(false);const em=$('#loginEmail');if(em)em.value=email;
+   setAuthMessage('Não foi possível criar uma nova conta com este email. Se já tens conta, inicia sessão ou recupera a palavra-passe.','error');
+  }else setAuthMessage(friendlyAuthError(err)||'Não foi possível criar a conta.','error');
+ }finally{if(btn){btn.disabled=false;btn.textContent='Criar conta'}}
 }
 async function loadPublicBackend(){
  guestMode=true;backendSession=null;backendProfile=null;backendRoles=[];backendPlayerAccount=null;backendPeople={profiles:[],roles:[],links:[],invitations:[]};backendPeopleLoaded=false;backendPrivacyAcknowledgement=null;backendPrivacyLoaded=false;
@@ -1328,6 +1380,7 @@ async function signInV3(email,password){
  try{
   const {data,error}=await supabaseClient.auth.signInWithPassword({email,password});
   if(error)throw error;
+  localStorage.removeItem(PENDING_CONFIRM_EMAIL_KEY);
   await loadIdentityWithOneRetry(data.session);
   showAuthenticatedApp();
   renderChrome();showView('dashboard');queuePostLoginOnboarding();
@@ -1345,7 +1398,8 @@ async function signOutV3(){
 async function bootV3(){
  showAuthGate();
  if(!window.supabase?.createClient){setAuthMessage('Não foi possível carregar a ligação ao Supabase. Confirma que tens internet e atualiza a página.','error');return}
- const initialRecoveryHint=authUrlSignalsRecovery();
+ const initialAuthFlow=authUrlFlow();
+ const initialRecoveryHint=initialAuthFlow==='recovery'||authUrlSignalsRecovery();
  const initialAuthError=authUrlError();
  supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
  const listener=supabaseClient.auth.onAuthStateChange((event,session)=>{
@@ -1359,14 +1413,20 @@ async function bootV3(){
  $('#signupForm').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.currentTarget);signUpV3(String(fd.get('name')||'').trim(),String(fd.get('email')||'').trim().toLowerCase(),String(fd.get('memberNumber')||'').trim(),String(fd.get('password')||''),String(fd.get('password2')||''))};
  $('#forgotPasswordForm').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.currentTarget);requestPasswordReset(String(fd.get('email')||'').trim())};
  $('#recoveryPasswordForm').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.currentTarget);completePasswordRecovery(String(fd.get('password')||''),String(fd.get('password2')||''))};
- $('#showSignupBtn').onclick=()=>showSignupMode(true);$('#backToLoginBtn').onclick=()=>showSignupMode(false);$('#forgotPasswordBtn').onclick=showForgotPasswordMode;$('#forgotBackToLoginBtn').onclick=()=>showAuthMode('login');$('#continuePublicBtn').onclick=continueAsPublic;$('#authPrivacyBtn').onclick=async()=>{await continueAsPublic();if(guestMode)showView('privacy')};
+ $('#resendConfirmationForm').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.currentTarget);resendSignupConfirmation(String(fd.get('email')||'').trim())};
+ $('#showSignupBtn').onclick=()=>showSignupMode(true);$('#backToLoginBtn').onclick=()=>showSignupMode(false);$('#forgotPasswordBtn').onclick=showForgotPasswordMode;$('#forgotBackToLoginBtn').onclick=()=>showAuthMode('login');$('#resendBackToLoginBtn').onclick=()=>showAuthMode('login');$('#continuePublicBtn').onclick=continueAsPublic;$('#authPrivacyBtn').onclick=async()=>{await continueAsPublic();if(guestMode)showView('privacy')};
  $('#logoutBtn').onclick=()=>guestMode?leavePublicMode():signOutV3();
  try{
   const {data,error}=await supabaseClient.auth.getSession();if(error)throw error;
-  if(initialAuthError&&!data.session){showAuthMode('login',false);setAuthMessage(`Não foi possível validar o link: ${initialAuthError}. Pede um novo link de recuperação.`,'error');cleanAuthUrl();return}
+  if(initialAuthError&&!data.session){
+   if(initialAuthFlow==='signup'&&authErrorIsExpiredOrInvalid(initialAuthError)){cleanAuthUrl();showExpiredSignupConfirmation();return}
+   showAuthMode(initialAuthFlow==='recovery'?'forgot':'login',false);
+   setAuthMessage(initialAuthFlow==='recovery'?`Não foi possível validar o link de recuperação: ${initialAuthError}. Pede um novo link.`:`Não foi possível validar o link: ${initialAuthError}.`,'error');
+   cleanAuthUrl();return;
+  }
   if((passwordRecoveryMode||initialRecoveryHint)&&data.session){passwordRecoveryMode=true;backendSession=data.session;showAuthGate();showAuthMode('recovery',false);setAuthMessage('Link de recuperação validado. Define uma nova palavra-passe.','ok');return}
-  if(data.session){await loadIdentityWithOneRetry(data.session);showAuthenticatedApp();renderChrome();showView('dashboard');queuePostLoginOnboarding()}
-  else {showAuthGate();showAuthMode('login',false);if(initialAuthError){setAuthMessage(`Não foi possível validar o link: ${initialAuthError}. Pede um novo link de recuperação.`,'error');cleanAuthUrl()}}
+  if(data.session){localStorage.removeItem(PENDING_CONFIRM_EMAIL_KEY);await loadIdentityWithOneRetry(data.session);showAuthenticatedApp();renderChrome();showView('dashboard');queuePostLoginOnboarding()}
+  else {showAuthGate();showAuthMode('login',false);if(initialAuthError){setAuthMessage(`Não foi possível validar o link: ${initialAuthError}.`,'error');cleanAuthUrl()}}
  }catch(err){console.error(err);setAuthMessage(`Ligação ao backend falhou: ${friendlyAuthError(err)}`,'error');showAuthGate()}
 }
 
@@ -1489,7 +1549,7 @@ let selectedTeamName=sessionStorage.getItem('teamView')||'ADC Figueiras';
 let selectedPlayerId=sessionStorage.getItem('playerView')||'';
 
 const viewInfo={
- dashboard:['Início','Visão geral do clube'],games:['Jogos','Calendário, resultados e fichas de jogo'],matchcenter:['Match Center','Cronologia e acontecimentos do jogo'],calendar:['Calendário','Treinos e jogos'],seriesResults:['Resultados','Campeonato e Taça AF Porto'],standings:['Classificação','Calculada automaticamente pelos resultados'],team:['Equipa','Jogos, forma recente e resultados'],stats:['Estatísticas','Jogadores e equipa'],player:['Ficha de jogador','Perfil e estatísticas individuais'],squad:['Plantel','Jogadores e disponibilidade'],training:['Treinos','Presenças e pesagens'],weights:['Pesagens','Histórico e evolução do plantel'],notifications:['Notificações','Comunicação com atletas e sócios'],account:['A minha conta','Perfil, sócio e segurança'],privacy:['Privacidade','Dados, acessos e transparência'],fines:['Multas','Registo interno'],fineRules:['Regras de multas','Motivos e automatismos'],seasons:['Épocas','Arquivo histórico'],people:['Pessoas e acessos','Utilizadores e múltiplas funções'],settings:['Definições','Dados, backups e integrações']
+ dashboard:['Início','Visão geral do clube'],games:['Jogos','Calendário, resultados e fichas de jogo'],matchcenter:['Match Center','Factos e acontecimentos do jogo'],calendar:['Calendário','Treinos e jogos'],seriesResults:['Resultados','Campeonato e Taça AF Porto'],standings:['Classificação','Calculada automaticamente pelos resultados'],team:['Equipa','Jogos, forma recente e resultados'],stats:['Estatísticas','Jogadores e equipa'],player:['Ficha de jogador','Perfil e estatísticas individuais'],squad:['Plantel','Jogadores e disponibilidade'],training:['Treinos','Presenças e pesagens'],weights:['Pesagens','Histórico e evolução do plantel'],notifications:['Notificações','Comunicação com atletas e sócios'],account:['A minha conta','Perfil, sócio e segurança'],privacy:['Privacidade','Dados, acessos e transparência'],fines:['Multas','Registo interno'],fineRules:['Regras de multas','Motivos e automatismos'],seasons:['Épocas','Arquivo histórico'],people:['Pessoas e acessos','Utilizadores e múltiplas funções'],settings:['Definições','Dados, backups e integrações']
 };
 
 const NAV_ICONS={
@@ -1707,7 +1767,8 @@ function fmtDateTime(iso){try{return iso?new Intl.DateTimeFormat('pt-PT',{dateSt
 function autoBackupSnapshot(){try{return JSON.parse(localStorage.getItem(AUTO_BACKUP_KEY)||'null')}catch{return null}}
 
 function renderChrome(){
- $('#previewMode').value=mode;
+ configurePreviewSelector();
+ const preview=$('#previewMode');if(preview&&!preview.classList.contains('hidden'))preview.value=mode;
  const seasonSel=$('#seasonSelect');seasonSel.innerHTML=state.seasons.filter(s=>!s.archived||s.id===state.settings.activeSeasonId).map(s=>`<option value="${s.id}" ${s.id===state.settings.activeSeasonId?'selected':''}>${esc(s.label)}</option>`).join('');
  const user=currentUser();const shownName=guestMode?'Visitante':backendSession?backendDisplayName():(user?.name||'Utilizador');$('#profileName').textContent=shownName;let roleText='';if(guestMode)roleText='Público';else if(backendSession){roleText=backendRoles.length?backendRoles.map(roleLabel).join(' · '):(backendProfile?.member_status==='pending'?'Utilizador registado · Sócio por validar':'Utilizador registado')}else roleText=(user?.roles||[]).map(roleLabel).join(' · ');$('#profileRoles').textContent=roleText;const av=$('#profileAvatar');if(av)av.textContent=initials(shownName);const cs=$('#connectionState');if(cs){cs.textContent=backendConnected?'Supabase ligado':'Ligação pendente';cs.classList.toggle('online',backendConnected)}const logout=$('#logoutBtn');if(logout)logout.textContent=guestMode?'Entrar':'Sair';const bell=$('#notificationBell');if(bell)bell.classList.toggle('hidden',guestMode);
  let html='';navDefs.forEach(gr=>{const items=gr.items.filter(i=>can(i[0]));if(!items.length)return;html+=`<div class="nav-group">${gr.group}</div>`+items.map(i=>`<button class="nav-item ${currentView===i[0]?'active':''}" data-view="${i[0]}"><span class="nav-icon" style="--nav-icon-color:${i[3]}">${navIcon(i[1])}</span><span class="nav-label">${i[2]}</span></button>`).join('')});$('#nav').innerHTML=html;
@@ -1779,13 +1840,13 @@ function openGameCreate(presetCompetition=''){
 }
 function openGameManage(id){
  const g=state.games.find(x=>x.id===id);if(!g)return;g.roster=g.roster||{};
- const roster=state.players.map(p=>{const r=g.roster[p.id]||{status:'Não convocado',starter:false,used:false};const status=normalizeRosterStatus(r.status);return `<div class="list-row roster-manage-row" data-rp="${p.id}"><div class="roster-player-meta"><div>${playerHtml(p)}</div>${pill(normalizePlayerStatus(p.status),statusPillType(p.status))}</div><div class="inline-actions roster-controls"><select class="roster-status"><option ${status==='Convocado'?'selected':''}>Convocado</option><option ${status==='Não convocado'?'selected':''}>Não convocado</option><option ${status==='Lesionado'?'selected':''}>Lesionado</option><option ${status==='Suspenso'?'selected':''}>Suspenso</option><option ${status==='Ausente'?'selected':''}>Ausente</option><option ${status==='Em dúvida'?'selected':''}>Em dúvida</option></select><label class="check-inline"><input type="checkbox" class="roster-used" ${r.used===true||r.starter?'checked':''}> Jogou</label><label class="check-inline"><input type="checkbox" class="roster-starter" ${r.starter?'checked':''}> 5 inicial</label><label class="check-inline captain-choice"><input type="radio" name="gameCaptain" class="roster-captain" ${g.captainId===p.id?'checked':''}> Capitão</label></div></div>`}).join('');
+ const roster=state.players.map(p=>{const r=g.roster[p.id]||{status:'Não convocado',starter:false,used:false};const status=normalizeRosterStatus(r.status);return `<div class="list-row roster-manage-row" data-rp="${p.id}"><div class="roster-player-meta"><div>${playerHtml(p)}</div>${pill(normalizePlayerStatus(p.status),statusPillType(p.status))}</div><div class="inline-actions roster-controls"><select class="roster-status"><option ${status==='Convocado'?'selected':''}>Convocado</option><option ${status==='Não convocado'?'selected':''}>Não convocado</option><option ${status==='Lesionado'?'selected':''}>Lesionado</option><option ${status==='Suspenso'?'selected':''}>Suspenso</option><option ${status==='Ausente'?'selected':''}>Ausente</option><option ${status==='Em dúvida'?'selected':''}>Em dúvida</option></select><label class="check-inline"><input type="checkbox" class="roster-used" ${r.used===true||r.starter?'checked':''}> Jogou</label><label class="check-inline"><input type="checkbox" class="roster-starter" ${r.starter?'checked':''}> 5 inicial</label><label class="check-inline captain-choice"><input type="checkbox" class="roster-captain" ${g.captainId===p.id?'checked':''}> Capitão</label></div></div>`}).join('');
  openModal(gameTitle(g),`${fmtDate(g.date)} · ${esc(g.competition||'Jogo')}`,`<div class="form-grid"><div class="field"><label>Data</label><input id="gDate" type="date" value="${esc(g.date)}"></div><div class="field"><label>Hora</label><input id="gTime" type="time" value="${esc(g.time||'')}"></div><div class="field"><label id="gRoundLabel">${isCupGame(g)?'Ronda':'Jornada'}</label><input id="gRound" type="text" value="${esc(g.round||'')}"></div><div class="field"><label>Golos Figueiras</label><input id="gHome" type="number" min="0" value="${esc(g.homeScore)}"></div><div class="field"><label>Golos adversário</label><input id="gAway" type="number" min="0" value="${esc(g.awayScore)}"></div><div class="field"><label>Estado</label><select id="gStatus"><option value="scheduled" ${g.status==='scheduled'?'selected':''}>Agendado</option><option value="final" ${g.status==='final'?'selected':''}>Final</option></select></div><div class="field"><label>Figueiras ao intervalo</label><input id="gHalfHome" type="number" min="0" value="${esc(g.halfTimeHomeScore??'')}"></div><div class="field"><label>Adversário ao intervalo</label><input id="gHalfAway" type="number" min="0" value="${esc(g.halfTimeAwayScore??'')}"></div><div class="field"><label>Competição</label><input id="gCompetition" list="gameCompetitionOptionsEdit" value="${esc(g.competition||'')}"><datalist id="gameCompetitionOptionsEdit"><option value="${esc(competitionName())}"><option value="Taça AF Porto"><option value="Amigável"></datalist></div><div class="field"><label>Classificação</label><label class="check-inline"><input id="gCounts" type="checkbox" ${(g.countsForStandings!==false&&!/taça|taca|amig|prepar|torneio/.test(String(g.competition||'').toLowerCase()))?'checked':''} ${isCupGame(g)?'disabled':''}> Conta para a classificação</label></div><div class="field full"><label>Local</label><input id="gVenue" value="${esc(g.venue||'')}"></div></div><div class="note subtle-note">O resultado ao intervalo é informação secundária na ficha. Nos jogos de campeonato, o intervalo é sempre aos 25 minutos.</div><div class="card-head" style="margin-top:18px"><div><h3>Convocatória e utilização</h3><p>Um convocado pode não ser utilizado. O 5 inicial e o capitão contam automaticamente como utilizados.</p></div><button class="btn secondary sm" id="allCalled">Convocar todos</button></div><div class="list">${roster}</div><div class="form-actions">${g.officialFixture?'':`<button class="btn danger" id="deleteGame">Eliminar</button>`}<span style="flex:1"></span><button class="btn secondary" data-close>Fechar</button><button class="btn" id="saveGame">Guardar</button></div>`,true);
  $('#allCalled').onclick=()=>$$('.roster-status').forEach(s=>s.value='Convocado');
  const syncGameCompetition=()=>{const cup=isCupCompetition($('#gCompetition').value);$('#gRoundLabel').textContent=cup?'Ronda':'Jornada';$('#gCounts').disabled=cup;if(cup)$('#gCounts').checked=false;};$('#gCompetition').addEventListener('input',syncGameCompetition);syncGameCompetition();
  $$('.roster-starter').forEach(cb=>cb.onchange=()=>{if(cb.checked){const row=cb.closest('[data-rp]');$('.roster-status',row).value='Convocado';$('.roster-used',row).checked=true}});
  $$('.roster-used').forEach(cb=>cb.onchange=()=>{if(cb.checked){const row=cb.closest('[data-rp]');$('.roster-status',row).value='Convocado'}});
- $$('.roster-captain').forEach(cb=>cb.onchange=()=>{if(cb.checked){const row=cb.closest('[data-rp]');$('.roster-status',row).value='Convocado';$('.roster-used',row).checked=true}});
+ $$('.roster-captain').forEach(cb=>cb.onchange=()=>{if(cb.checked){$$('.roster-captain').forEach(other=>{if(other!==cb)other.checked=false});const row=cb.closest('[data-rp]');$('.roster-status',row).value='Convocado';$('.roster-used',row).checked=true}});
  $('#saveGame').onclick=async()=>{g.date=$('#gDate').value;g.time=$('#gTime').value;g.round=$('#gRound')?.value||g.round||'';g.competition=$('#gCompetition').value.trim()||g.competition||'Jogo';g.homeScore=$('#gHome').value;g.awayScore=$('#gAway').value;g.halfTimeHomeScore=$('#gHalfHome').value;g.halfTimeAwayScore=$('#gHalfAway').value;g.status=$('#gStatus').value;g.countsForStandings=isCupGame(g)?false:$('#gCounts').checked;g.venue=$('#gVenue').value;let starters=0;let captainId='';$$('[data-rp]').forEach(row=>{g.roster[row.dataset.rp]=g.roster[row.dataset.rp]||{stats:{}};const starter=$('.roster-starter',row).checked;const isCaptain=$('.roster-captain',row).checked;const used=starter||isCaptain||$('.roster-used',row).checked;const status=(starter||used||isCaptain)?'Convocado':$('.roster-status',row).value;g.roster[row.dataset.rp].status=status;g.roster[row.dataset.rp].starter=starter;g.roster[row.dataset.rp].used=status==='Convocado'?used:false;if(starter)starters++;if(isCaptain)captainId=row.dataset.rp});if(starters>5){alert('Só podes selecionar até 5 jogadores para o 5 inicial.');return;}g.captainId=captainId;const btn=$('#saveGame');if(btn){btn.disabled=true;btn.textContent='A guardar…'}try{if(backendMatchesLoaded&&backendMatches.rows.length){await saveBackendClubGame(g);await saveBackendMatchPlayers(g);}closeModal();saveState('Jogo e Match Center atualizados no Supabase.')}catch(err){console.error(err);alert(`Não foi possível guardar o jogo no Supabase.\n\n${err?.message||'Erro desconhecido'}`);if(btn){btn.disabled=false;btn.textContent='Guardar'}}};
  $('#deleteGame')&&($('#deleteGame').onclick=async()=>{if(!confirm('Eliminar este jogo?'))return;try{if(g.backendId&&backendMatchesLoaded&&backendMatches.rows.length)await deleteBackendMatchById(g.backendId);state.games=state.games.filter(x=>x.id!==g.id);closeModal();saveState('Jogo eliminado.')}catch(err){console.error(err);alert(`Não foi possível eliminar o jogo.\n\n${err?.message||'Erro desconhecido'}`)}});$('[data-close]').onclick=closeModal;
 }
@@ -1798,7 +1859,7 @@ function renderMatchCenter(){
  const calledTags=calledEntries.map(([pid,r])=>{const p=playerById(pid);if(!p)return '';const used=playerWasUsed(g,pid,r),captain=g.captainId===pid;return `<span class="callup-chip ${used?'used':'unused'}">${p.number?`#${esc(p.number)} · `:''}${esc(p.name)}${captain?' <b class="captain-badge">C</b>':''}${g.status==='final'?` · ${used?'utilizado':'não utilizado'}`:''}</span>`}).join('');const ht=halfTimeScoreText(g);
  const weightData=matchWeightSummary(g,calledEntries);
  const weightBlock=privatePlayerAccess()?`<div style="height:15px"></div><div class="card"><div class="card-head"><div><h3>Pesagens</h3><p>${weightData.complete}/${weightData.total} registadas · peso pré-jogo e pós-jogo.</p></div>${canEdit()?'<button class="btn secondary sm" id="manageMatchWeights">Gerir pesagens</button>':''}</div>${weightData.total?`<div class="table-wrap"><table class="match-weight-table"><thead><tr><th>Jogador</th><th>Pré-jogo</th><th>Pós-jogo</th><th>Diferença</th></tr></thead><tbody>${weightData.rows.map(x=>`<tr><td>${playerStatHtml(x.player)}</td><td>${x.pre?`${x.pre.toFixed(1)} kg`:'—'}</td><td>${x.post?`${x.post.toFixed(1)} kg`:'—'}</td><td>${x.delta===null?'—':`<strong>${x.delta>0?'+':''}${x.delta.toFixed(1)} kg</strong>`}</td></tr>`).join('')}</tbody></table></div>`:empty('Convocatória por definir','As pesagens de jogo ficam disponíveis depois de definires os convocados.')}</div>`:'';
- $('#view-matchcenter').innerHTML=`<div class="section-head"><div><h2>Match Center</h2><p>${fmtDate(g.date)} · ${esc(g.competition||'Jogo')}</p></div><div class="inline-actions">${canEdit()?`<button class="btn secondary" id="editThisGame">Convocatória / ficha de jogo</button><button class="btn" id="addEvent">＋ Acontecimento</button>`:''}</div></div><div class="match-grid"><div class="card match-scoreboard"><div class="eyebrow">${g.status==='final'?'FINAL':'FICHA DE JOGO'}</div><div class="teams"><div class="team-name">${g.homeAway==='Casa'?'ADC Figueiras':esc(g.opponent)}</div><div class="big-score">${scoreText(g)}</div><div class="team-name">${g.homeAway==='Casa'?esc(g.opponent):'ADC Figueiras'}</div></div>${ht?`<div class="halftime-score">Intervalo · ${esc(ht)}</div>`:''}<div class="muted">${esc(g.time||'Hora por definir')} · ${esc(g.venue||'Local por definir')}</div><div class="hero-actions" style="justify-content:center">${canEdit()?`<button class="btn blue sm" id="notifGameDay">DIA DE JOGO!</button><button class="btn secondary sm" id="notifCallup">Convocatória</button><button class="btn amber sm" id="notifFood">Plano pré-jogo</button>${g.status==='final'?'<button class="btn danger sm" id="notifFinal">Resultado final</button>':''}`:''}</div><div class="card-head" style="margin-top:20px;text-align:left"><div><h3>5 inicial</h3><p>${starters.length}/5 definido</p></div></div><div class="starter-five">${starterSlots}</div><div class="card-head" style="margin-top:16px;text-align:left"><div><h3>Convocados</h3><p>${called.length} jogador(es)${g.captainId&&playerById(g.captainId)?` · Capitão: ${esc(playerById(g.captainId).name)}`:''}</p></div></div>${called.length?`<div class="callup-list">${calledTags}</div>`:empty('Convocatória por definir')}</div><div class="card"><div class="card-head"><div><h3>Cronologia</h3><p>${isLeagueGame(g)?'Intervalo automático aos 25 minutos. ':''}Golos, assistências e cartões alimentam as estatísticas.</p></div></div>${events.length?`<div class="timeline">${events.map(eventHtml).join('')}</div>`:empty('Ainda sem acontecimentos','Regista no final do jogo os marcadores, assistências e cartões.')}</div></div>${weightBlock}`;
+ $('#view-matchcenter').innerHTML=`<div class="section-head"><div><h2>Match Center</h2><p>${fmtDate(g.date)} · ${esc(g.competition||'Jogo')}</p></div><div class="inline-actions">${canEdit()?`<button class="btn secondary" id="editThisGame">Convocatória / ficha de jogo</button><button class="btn" id="addEvent">＋ Acontecimento</button>`:''}</div></div><div class="match-grid"><div class="card match-scoreboard"><div class="eyebrow">${g.status==='final'?'FINAL':'FICHA DE JOGO'}</div><div class="teams"><div class="team-name">${g.homeAway==='Casa'?'ADC Figueiras':esc(g.opponent)}</div><div class="big-score">${scoreText(g)}</div><div class="team-name">${g.homeAway==='Casa'?esc(g.opponent):'ADC Figueiras'}</div></div>${ht?`<div class="halftime-score">Intervalo · ${esc(ht)}</div>`:''}<div class="muted">${esc(g.time||'Hora por definir')} · ${esc(g.venue||'Local por definir')}</div><div class="hero-actions" style="justify-content:center">${canEdit()?`<button class="btn blue sm" id="notifGameDay">DIA DE JOGO!</button><button class="btn secondary sm" id="notifCallup">Convocatória</button><button class="btn amber sm" id="notifFood">Plano pré-jogo</button>${g.status==='final'?'<button class="btn danger sm" id="notifFinal">Resultado final</button>':''}`:''}</div><div class="card-head" style="margin-top:20px;text-align:left"><div><h3>5 inicial</h3><p>${starters.length}/5 definido</p></div></div><div class="starter-five">${starterSlots}</div><div class="card-head" style="margin-top:16px;text-align:left"><div><h3>Convocados</h3><p>${called.length} jogador(es)${g.captainId&&playerById(g.captainId)?` · Capitão: ${esc(playerById(g.captainId).name)}`:''}</p></div></div>${called.length?`<div class="callup-list">${calledTags}</div>`:empty('Convocatória por definir')}</div><div class="card"><div class="card-head"><div><h3>Factos do jogo</h3></div></div>${events.length?`<div class="timeline">${events.map(eventHtml).join('')}</div>`:empty('Ainda sem acontecimentos','Regista no final do jogo os marcadores, assistências e cartões.')}</div></div>${weightBlock}`;
  $('#editThisGame')&&($('#editThisGame').onclick=()=>openGameManage(g.id));$('#addEvent')&&($('#addEvent').onclick=()=>openEventCreate(g.id));$('#manageMatchWeights')&&($('#manageMatchWeights').onclick=()=>openMatchWeights(g.id));$('#notifGameDay')&&($('#notifGameDay').onclick=()=>prepareGameDayNotification(g.id));$('#notifCallup')&&($('#notifCallup').onclick=()=>prepareCallupNotification(g.id));$('#notifFood')&&($('#notifFood').onclick=()=>prepareNutritionNotifications(g.id));$('#notifFinal')&&($('#notifFinal').onclick=()=>prepareFinalNotification(g.id));
  $$('.delete-event').forEach(b=>b.onclick=async()=>{const eventId=b.dataset.eventId;if(!eventId||eventId==='auto_halftime')return;if(!confirm('Remover este acontecimento?'))return;const event=(g.timeline||[]).find(e=>e.id===eventId);try{if(event?.backendId&&backendConnected)await deleteBackendMatchEvent(event);g.timeline=(g.timeline||[]).filter(e=>e.id!==eventId);if(backendConnected&&g.backendId){await saveBackendMatchPlayers(g,{reload:false});await loadBackendMatchCenterData();}saveState('Acontecimento removido do Supabase.');renderMatchCenter()}catch(err){console.error(err);alert(`Não foi possível remover o acontecimento.\n\n${err?.message||'Erro desconhecido'}`)}});
 }
@@ -2080,22 +2141,38 @@ function renderTeamPage(){
 
 function openStandingRow(st,id=''){const r=id?st.rows.find(x=>x.id===id):{team:'',j:0,v:0,e:0,d:0,gf:0,ga:0,pts:0};openModal(id?'Editar classificação':'Adicionar equipa','Valores da tabela classificativa.',`<form id="standingForm"><div class="form-grid"><div class="field full"><label>Equipa</label><input name="team" value="${esc(r.team)}" required></div>${[['j','J'],['v','V'],['e','E'],['d','D'],['gf','GM'],['ga','GS'],['pts','Pts']].map(([k,l])=>`<div class="field"><label>${l}</label><input name="${k}" type="number" min="0" value="${Number(r[k])||0}"></div>`).join('')}</div><div class="form-actions">${id?'<button type="button" class="btn danger" id="delStanding">Eliminar</button>':''}<span style="flex:1"></span><button type="button" class="btn secondary" data-close>Cancelar</button><button class="btn">Guardar</button></div></form>`);$('#standingForm').onsubmit=e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target));if(id)Object.assign(r,d);else st.rows.push({id:uid('sr'),...d});closeModal();saveState()};$('#delStanding')&&($('#delStanding').onclick=()=>{st.rows=st.rows.filter(x=>x.id!==id);closeModal();saveState()});$('[data-close]').onclick=closeModal}
 
+function openCalendarEventInfo(ev){
+ if(!ev)return;
+ const isTraining=ev.type==='training';
+ const title=isTraining?'Treino':ev.title;
+ const subtitle=isTraining?`Treino · ${fmtDate(ev.date)}`:`Jogo · ${fmtDate(ev.date)}`;
+ let action='';
+ if(isTraining&&ev.trainingId&&can('training')) action='<button class="btn" id="calendarOpenTraining">Abrir treino</button>';
+ else if(!isTraining&&ev.clubGameId&&can('matchcenter')) action='<button class="btn" id="calendarOpenMatch">Abrir Match Center</button>';
+ else if(!isTraining&&ev.fixtureId&&canEdit()) action='<button class="btn" id="calendarEditFixture">Editar jogo</button>';
+ openModal(title,subtitle,`<div class="diagnostic-grid"><div><span>Data</span><strong>${fmtDate(ev.date)}</strong></div><div><span>Hora</span><strong>${esc(ev.time||'Por definir')}</strong></div><div><span>Local</span><strong>${esc(ev.location||'Por definir')}</strong></div></div><div class="form-actions"><button class="btn secondary" data-close>Fechar</button>${action}</div>`);
+ $('[data-close]').onclick=closeModal;
+ $('#calendarOpenTraining')&&($('#calendarOpenTraining').onclick=()=>{closeModal();openTrainingManage(ev.trainingId)});
+ $('#calendarOpenMatch')&&($('#calendarOpenMatch').onclick=()=>{closeModal();sessionStorage.setItem('mcGame',ev.clubGameId);showView('matchcenter')});
+ $('#calendarEditFixture')&&($('#calendarEditFixture').onclick=()=>{closeModal();openSeriesResult(ev.fixtureId)});
+}
+
 function renderCalendar(){
  syncClubGamesToFixtures();
  const first=new Date(calendarCursor.getFullYear(),calendarCursor.getMonth(),1),start=new Date(first);start.setDate(1-((first.getDay()+6)%7));
  let events=[
-  ...seasonTrainings().map(t=>({date:t.date,type:'training',label:`Treino ${t.time||''}`,time:t.time||''})),
-  ...seasonCompetitionFixtures().map(f=>({date:f.date,type:'game',label:`J${f.round} · ${teamByName(f.home)?.short||f.home} – ${teamByName(f.away)?.short||f.away}`,time:f.time||'',clubGameId:f.clubGameId||'',fixtureId:f.id,isClub:isFigueirasTeam(f.home)||isFigueirasTeam(f.away)}))
+  ...seasonTrainings().map(t=>({date:t.date,type:'training',title:t.title||'Treino',label:`Treino ${t.time||''}`,time:t.time||'',location:t.location||'',trainingId:t.id})),
+  ...seasonCompetitionFixtures().map(f=>({date:f.date,type:'game',title:`${f.home} – ${f.away}`,label:`J${f.round} · ${teamByName(f.home)?.short||f.home} – ${teamByName(f.away)?.short||f.away}`,time:f.time||'',location:f.venue||teamByName(f.home)?.homeVenue||'',clubGameId:f.clubGameId||'',fixtureId:f.id,isClub:isFigueirasTeam(f.home)||isFigueirasTeam(f.away)}))
  ];
  if(calendarEventFilter==='club')events=events.filter(e=>e.type==='game'&&e.isClub);
  if(calendarEventFilter==='training')events=events.filter(e=>e.type==='training');
+ events=events.map((e,i)=>({...e,_calendarKey:String(i)}));
  let days='';
- for(let i=0;i<42;i++){const d=new Date(start);d.setDate(start.getDate()+i);const k=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;const muted=d.getMonth()!==calendarCursor.getMonth();days+=`<div class="calendar-day ${muted?'muted':''} ${k===nowKey()?'today':''}"><div class="day-num">${d.getDate()}</div>${events.filter(e=>e.date===k).sort((a,b)=>String(a.time).localeCompare(String(b.time))).map(e=>`<button class="cal-event ${e.type==='game'?'game':''} ${e.isClub?'club':''}" ${e.clubGameId?`data-cal-club="${esc(e.clubGameId)}"`:e.fixtureId&&canEdit()?`data-cal-fixture="${esc(e.fixtureId)}"`:''}>${esc(e.label)}</button>`).join('')}</div>`}
+ for(let i=0;i<42;i++){const d=new Date(start);d.setDate(start.getDate()+i);const k=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;const muted=d.getMonth()!==calendarCursor.getMonth();days+=`<div class="calendar-day ${muted?'muted':''} ${k===nowKey()?'today':''}"><div class="day-num">${d.getDate()}</div>${events.filter(e=>e.date===k).sort((a,b)=>String(a.time).localeCompare(String(b.time))).map(e=>`<button class="cal-event ${e.type==='game'?'game':''} ${e.isClub?'club':''}" data-cal-event="${e._calendarKey}">${esc(e.label)}</button>`).join('')}</div>`}
  $('#view-calendar').innerHTML=`<div class="calendar-head"><button class="btn secondary sm" id="prevMonth">←</button><h2>${fmtMonth(calendarCursor)}</h2><button class="btn secondary sm" id="nextMonth">→</button></div><div class="toolbar calendar-toolbar"><div class="field result-filter"><label>Mostrar</label><select id="calendarFilter"><option value="all" ${calendarEventFilter==='all'?'selected':''}>Tudo</option><option value="club" ${calendarEventFilter==='club'?'selected':''}>Só ADC Figueiras</option><option value="training" ${calendarEventFilter==='training'?'selected':''}>Só treinos</option></select></div></div><div class="calendar-grid">${['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].map(x=>`<div class="dow">${x}</div>`).join('')}${days}</div>`;
  $('#prevMonth').onclick=()=>{calendarCursor.setMonth(calendarCursor.getMonth()-1);renderCalendar()};$('#nextMonth').onclick=()=>{calendarCursor.setMonth(calendarCursor.getMonth()+1);renderCalendar()};
  $('#calendarFilter').onchange=e=>{calendarEventFilter=e.target.value;renderCalendar()};
- $$('[data-cal-club]').forEach(b=>b.onclick=()=>{sessionStorage.setItem('mcGame',b.dataset.calClub);showView('matchcenter')});
- $$('[data-cal-fixture]').forEach(b=>b.onclick=()=>openSeriesResult(b.dataset.calFixture));
+ $$('[data-cal-event]').forEach(b=>b.onclick=()=>openCalendarEventInfo(events.find(e=>e._calendarKey===b.dataset.calEvent)));
 }
 
 function renderFines(){
@@ -2247,7 +2324,7 @@ function openModal(title,subtitle,html,wide=false){$('#modalTitle').textContent=
 function closeModal(){$('#modalBackdrop').classList.add('hidden')}
 
 document.addEventListener('click',e=>{const link=e.target.closest('[data-team-link]');if(link){e.preventDefault();e.stopPropagation();openTeamPage(link.dataset.teamLink)}});
-$('#menuBtn').onclick=()=>$('#sidebar').classList.toggle('open');$('#closeModal').onclick=closeModal;$('#modalBackdrop').onclick=e=>{if(e.target===$('#modalBackdrop'))closeModal()};$('#previewMode').onchange=e=>{mode=e.target.value;localStorage.setItem(MODE_KEY,mode);if(!can(currentView))currentView='dashboard';renderChrome();showView(currentView)};$('#seasonSelect').onchange=e=>{state.settings.activeSeasonId=e.target.value;saveState();showView('dashboard')};$('#notificationBell').onclick=()=>showView('notifications');$('#importInput').onchange=e=>{const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=()=>{try{const data=JSON.parse(r.result);if(!data.schemaVersion)throw new Error('Formato inválido');state=normalizeState(data);saveState('Backup importado.')}catch(err){alert('Não foi possível importar este ficheiro.')}};r.readAsText(file);e.target.value=''};
+$('#menuBtn').onclick=()=>$('#sidebar').classList.toggle('open');$('#closeModal').onclick=closeModal;$('#modalBackdrop').onclick=e=>{if(e.target===$('#modalBackdrop'))closeModal()};$('#previewMode').onchange=e=>{if(!backendRoles.includes('admin')||guestMode){mode=guestMode?'public':highestBackendRole(backendRoles);renderChrome();return}mode=e.target.value;localStorage.setItem(MODE_KEY,mode);if(!can(currentView))currentView='dashboard';renderChrome();showView(currentView)};$('#seasonSelect').onchange=e=>{state.settings.activeSeasonId=e.target.value;saveState();showView('dashboard')};$('#notificationBell').onclick=()=>showView('notifications');$('#importInput').onchange=e=>{const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=()=>{try{const data=JSON.parse(r.result);if(!data.schemaVersion)throw new Error('Formato inválido');state=normalizeState(data);saveState('Backup importado.')}catch(err){alert('Não foi possível importar este ficheiro.')}};r.readAsText(file);e.target.value=''};
 window.addEventListener('online',()=>$('#offlineBanner').classList.add('hidden'));window.addEventListener('offline',()=>$('#offlineBanner').classList.remove('hidden'));if(!navigator.onLine)$('#offlineBanner').classList.remove('hidden');
 if('serviceWorker'in navigator&&location.protocol!=='file:'){
  navigator.serviceWorker.register('./sw.js?v=3.15',{updateViaCache:'none'}).then(async reg=>{

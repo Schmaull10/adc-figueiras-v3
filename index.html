@@ -9,10 +9,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Figueiras" />
   <title>ADC Figueiras</title>
-  <link rel="manifest" href="manifest.webmanifest?v=3.15" />
+  <link rel="manifest" href="manifest.webmanifest?v=1.1.1" />
   <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png" />
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
-  <link rel="stylesheet" href="styles.css?v=1.0.1" />
+  <link rel="stylesheet" href="styles.css?v=1.1.1" />
 </head>
 <body>
   <section class="auth-gate" id="authGate">
@@ -52,8 +52,14 @@
         <label>Confirmar nova palavra-passe<input name="password2" type="password" autocomplete="new-password" required placeholder="Repete a palavra-passe" /></label>
         <button class="btn auth-submit" id="recoveryPasswordBtn" type="submit">Guardar nova palavra-passe</button>
       </form>
+      <form id="resendConfirmationForm" class="auth-form hidden">
+        <div class="info-strip">O link de confirmação já não é válido. Indica o email usado no registo para receberes um novo link.</div>
+        <label>Email<input id="resendConfirmationEmail" name="email" type="email" autocomplete="email" required placeholder="teu@email.pt" /></label>
+        <button class="btn auth-submit" id="resendConfirmationBtn" type="submit">Reenviar email de confirmação</button>
+        <button class="btn secondary auth-alt" id="resendBackToLoginBtn" type="button">Voltar a Entrar</button>
+      </form>
       <div class="auth-message" id="authMessage" aria-live="polite"></div>
-      <div class="auth-foot">ADC Figueiras · V1.0 · <button class="auth-link inline" id="authPrivacyBtn" type="button">Privacidade</button></div>
+      <div class="auth-foot">ADC Figueiras · V1.1 · <button class="auth-link inline" id="authPrivacyBtn" type="button">Privacidade</button></div>
     </div>
   </section>
 
@@ -61,7 +67,7 @@
     <aside class="sidebar" id="sidebar">
       <div class="brand">
         <div class="brand-mark"><img src="assets/adc-figueiras-emblema.png" alt="Emblema ADC Figueiras" /></div>
-        <div><strong>ADC Figueiras</strong><span>Clube · V1.0</span></div>
+        <div><strong>ADC Figueiras</strong><span>Clube · V1.1</span></div>
       </div>
 
       <div class="season-switch">
@@ -134,6 +140,6 @@
   <input type="file" id="importInput" accept="application/json" hidden />
   <div class="toast" id="toast"></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-  <script src="app.js?v=1.0.1"></script>
+  <script src="app.js?v=1.1.1"></script>
 </body>
 </html>

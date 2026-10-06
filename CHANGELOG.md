@@ -1,3 +1,15 @@
+# Changelog
+
+## V1.1 — 02/10/2026
+- Match Center: “Cronologia” passou a “Factos do jogo”.
+- Removido o texto explicativo sobre intervalo aos 25 minutos e alimentação automática das estatísticas.
+- Capitão de jogo pode agora ser retirado ao desmarcar o jogador selecionado.
+- O seletor “Vista X” fica disponível apenas para Admin; restantes contas usam automaticamente a função com maior nível de acesso.
+- Links de confirmação expirados passam a abrir um fluxo específico para reenviar o email de confirmação, sem mostrar essa opção no login normal.
+- Registos repetidos deixam de aparentar criar/substituir uma conta e apresentam orientação para iniciar sessão ou recuperar a palavra-passe.
+- Calendário: tocar num treino ou jogo abre agora os detalhes do evento, incluindo hora e local.
+- Cache/PWA atualizado para V1.1.
+
 # Hotfix V1.0 — Estado SMTP no diagnóstico
 
 - Corrigido o cartão **SMTP de produção** nas Definições: passa a refletir a validação já concluída dos fluxos SMTP/Auth.
