@@ -1,5 +1,21 @@
 # Changelog
 
+## V1.2 — 07/10/2026
+
+- Adicionada navegação por épocas e modo histórico para 2025/26.
+- Épocas disponíveis para todos os perfis; edição histórica limitada a Admin através do botão **Editar histórico**.
+- Treinos, Pesagens e Multas ocultos no histórico para não-admins.
+- Importados o plantel 2025/26, três competições e 101 jogos oficiais/resultados.
+- Importada a classificação completa da I Divisão Série 3 e da Taça Complementar Série B através dos resultados.
+- Novo suporte a decisões administrativas: o ecrã mostra sempre `DA`, enquanto o resultado atribuído é usado apenas na classificação.
+- Suporte a derrota administrativa de ambas as equipas.
+- Suporte a desempates por grandes penalidades separado do resultado regulamentar.
+- Os jogadores reutilizam a identidade atual entre épocas (ex.: Paredes, Timóteo e Batista).
+- Match Center histórico disponível em leitura e editável por Admin para reconstrução das estatísticas jogo a jogo.
+- Notificações de jogos desativadas no modo histórico para evitar envios acidentais.
+- Calendário histórico inclui campeonato, Taça Complementar e Taça AF Porto, com hora e pavilhão associados.
+- Cache/PWA atualizado para V1.2.
+
 ## V1.1 — 02/10/2026
 - Match Center: “Cronologia” passou a “Factos do jogo”.
 - Removido o texto explicativo sobre intervalo aos 25 minutos e alimentação automática das estatísticas.
